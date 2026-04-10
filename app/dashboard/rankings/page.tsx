@@ -22,7 +22,7 @@ interface LeaderEntry {
 
 export default function RankingsPage() {
   const [scope, setScope] = useState<Scope>("overall");
-  const [subjectFilter, setSubjectFilter] = useState("maths");
+  const [subjectFilter, setSubjectFilter] = useState("core_math");
   const [yearFilter, setYearFilter] = useState<"" | "1" | "2" | "3">("");
   const [leaderboard, setLeaderboard] = useState<LeaderEntry[]>([]);
   const [student, setStudent] = useState<Student | null>(null);
@@ -42,23 +42,23 @@ export default function RankingsPage() {
 
       let query = supabase
         .from("students")
-        .select("id, full_name, school_name, year_group, xp_overall, xp_year, xp_maths, xp_english, xp_science, xp_social, rank_overall, rank_year, rank_maths, rank_english, rank_science, rank_social, rank_overall_position, rank_year_position, subscription_status")
+        .select("id, full_name, school_name, year_group, xp_overall, xp_year, xp_core_math, xp_english, xp_integrated_science, xp_social_studies, rank_overall, rank_year, rank_core_math, rank_english, rank_integrated_science, rank_social_studies, rank_position_overall, rank_position_year, subscription_status")
         .eq("subscription_status", "active");
 
       if (yearFilter) query = query.eq("year_group", yearFilter);
 
       let xpField = "xp_overall";
       let rankField = "rank_overall";
-      let posField = "rank_overall_position";
+      let posField = "rank_position_overall";
 
       if (scope === "year") {
         xpField = "xp_year";
         rankField = "rank_year";
-        posField = "rank_year_position";
+        posField = "rank_position_year";
       } else if (scope === "subject") {
         xpField = `xp_${subjectFilter}`;
         rankField = `rank_${subjectFilter}`;
-        posField = "rank_overall_position"; // approximate
+        posField = "rank_position_overall"; // approximate
       }
 
       const { data: students } = await query
@@ -98,8 +98,8 @@ export default function RankingsPage() {
     : student?.[`xp_${subjectFilter}` as keyof Student] as number;
 
   const myPos = scope === "overall"
-    ? student?.rank_overall_position
-    : student?.rank_year_position;
+    ? student?.rank_position_overall
+    : student?.rank_position_year;
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto space-y-6 animate-fade-in">

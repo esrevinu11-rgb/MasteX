@@ -8,33 +8,60 @@ import { ChevronRight, Zap } from "lucide-react";
 
 export default async function SubjectsPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 
   const { data: student } = await supabase
-    .from("students").select("*").eq("id", user.id).single();
+    .from("students")
+    .select("*")
+    .eq("id", user.id)
+    .single();
   if (!student) redirect("/auth/login");
   const s = student as Student;
 
-  // Fetch all topics with progress for this student
+  // Fetch topics for this year group
   const { data: topics } = await supabase
     .from("topics")
-    .select("*, topic_progress!left(student_id, mastery_state, xp_earned, next_review_date)")
+    .select("id, subject_id, name, waec_code, order_index")
     .eq("year_group", s.year_group)
     .order("order_index");
 
+  // Fetch sub-topic progress for this student, joined with sub_topic's topic_id
+  const { data: progressRows } = await supabase
+    .from("sub_topic_progress")
+    .select("sub_topic_id, topic_id, mastery_state, xp_earned_total, next_review_date")
+    .eq("student_id", user.id);
+
+  // Group progress by topic_id
+  const progressByTopic = new Map<
+    string,
+    { state: MasteryState; due: boolean }[]
+  >();
+  for (const row of progressRows ?? []) {
+    const list = progressByTopic.get(row.topic_id) ?? [];
+    list.push({
+      state: row.mastery_state as MasteryState,
+      due: row.next_review_date
+        ? new Date(row.next_review_date) <= new Date()
+        : false,
+    });
+    progressByTopic.set(row.topic_id, list);
+  }
+
   const subjectRank = {
-    maths: s.rank_maths,
+    core_math: s.rank_core_math,
     english: s.rank_english,
-    science: s.rank_science,
-    social: s.rank_social,
+    integrated_science: s.rank_integrated_science,
+    social_studies: s.rank_social_studies,
   };
 
   const subjectXP = {
-    maths: s.xp_maths,
+    core_math: s.xp_core_math,
     english: s.xp_english,
-    science: s.xp_science,
-    social: s.xp_social,
+    integrated_science: s.xp_integrated_science,
+    social_studies: s.xp_social_studies,
   };
 
   return (
@@ -47,8 +74,8 @@ export default async function SubjectsPage() {
       {/* Summary tiles */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {SUBJECTS.map((subject) => {
-          const xp = subjectXP[subject.code as keyof typeof subjectXP] || 0;
-          const rank = subjectRank[subject.code as keyof typeof subjectRank] || "F3";
+          const xp = subjectXP[subject.code as keyof typeof subjectXP] ?? 0;
+          const rank = subjectRank[subject.code as keyof typeof subjectRank] ?? "F3";
           return (
             <div
               key={subject.id}
@@ -66,14 +93,20 @@ export default async function SubjectsPage() {
       {/* Subject detail cards */}
       <div className="space-y-6">
         {SUBJECTS.map((subject) => {
-          const xp = subjectXP[subject.code as keyof typeof subjectXP] || 0;
-          const rank = subjectRank[subject.code as keyof typeof subjectRank] || "F3";
-          const subjectTopics = (topics || []).filter((t: Record<string, unknown>) => t.subject_id === subject.id);
+          const xp = subjectXP[subject.code as keyof typeof subjectXP] ?? 0;
+          const rank = subjectRank[subject.code as keyof typeof subjectRank] ?? "F3";
+          const subjectTopics = (topics ?? []).filter(
+            (t: Record<string, unknown>) => t.subject_id === subject.id
+          );
 
-          const masteredCount = subjectTopics.filter((t: Record<string, unknown>) => {
-            const prog = Array.isArray(t.topic_progress) ? t.topic_progress[0] : null;
-            return prog?.mastery_state === "mastered" || prog?.mastery_state === "locked_in";
-          }).length;
+          const masteredInSubject = subjectTopics.filter(
+            (t: Record<string, unknown>) => {
+              const rows = progressByTopic.get(t.id as string) ?? [];
+              return rows.length > 0 && rows.every((r) =>
+                r.state === "mastered" || r.state === "locked_in"
+              );
+            }
+          ).length;
 
           return (
             <div
@@ -91,7 +124,7 @@ export default async function SubjectsPage() {
                     <div>
                       <h2 className="font-bold">{subject.name}</h2>
                       <p className="text-xs text-[#6B6860]">
-                        {masteredCount}/{subjectTopics.length} topics mastered
+                        {masteredInSubject}/{subjectTopics.length} topics mastered
                       </p>
                     </div>
                   </div>
@@ -120,12 +153,25 @@ export default async function SubjectsPage() {
                   </div>
                 ) : (
                   subjectTopics.map((topic: Record<string, unknown>) => {
-                    const prog = Array.isArray(topic.topic_progress) ? topic.topic_progress[0] : null;
-                    const state: MasteryState = prog?.mastery_state || "unseen";
-                    const stateInfo = MASTERY_STATES[state];
-                    const isReviewDue =
-                      prog?.next_review_date &&
-                      new Date(prog.next_review_date) <= new Date();
+                    const rows = progressByTopic.get(topic.id as string) ?? [];
+                    const hasDue = rows.some((r) => r.due);
+
+                    // Derive a representative mastery state from sub-topic rows
+                    let dominantState: MasteryState = "unseen";
+                    if (rows.length > 0) {
+                      const statePriority: MasteryState[] = [
+                        "locked_in", "mastered", "consolidating",
+                        "practicing", "introduced", "unseen",
+                      ];
+                      for (const sp of statePriority) {
+                        if (rows.some((r) => r.state === sp)) {
+                          dominantState = sp;
+                          break;
+                        }
+                      }
+                    }
+
+                    const stateInfo = MASTERY_STATES[dominantState];
 
                     return (
                       <Link
@@ -133,30 +179,26 @@ export default async function SubjectsPage() {
                         href={`/dashboard/study?topic=${topic.id}`}
                         className="flex items-center gap-4 px-6 py-3.5 hover:bg-[#252320] transition-colors group"
                       >
-                        {/* Mastery dot */}
                         <div
                           className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                           style={{ backgroundColor: stateInfo.color }}
                         />
-
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium truncate">{String(topic.name ?? "")}</div>
+                          <div className="text-sm font-medium truncate">
+                            {String(topic.name ?? "")}
+                          </div>
                           {topic.waec_code ? (
-                            <div className="text-xs text-[#4B5563]">{String(topic.waec_code)}</div>
+                            <div className="text-xs text-[#4B5563]">
+                              {String(topic.waec_code)}
+                            </div>
                           ) : null}
                         </div>
-
-                        {/* State label */}
                         <div
                           className="text-xs font-medium px-2 py-1 rounded-lg"
-                          style={{
-                            color: stateInfo.color,
-                            backgroundColor: stateInfo.bgColor,
-                          }}
+                          style={{ color: stateInfo.color, backgroundColor: stateInfo.bgColor }}
                         >
-                          {isReviewDue ? "Review due" : stateInfo.label}
+                          {hasDue ? "Review due" : stateInfo.label}
                         </div>
-
                         <ChevronRight
                           size={14}
                           className="text-[#4B5563] group-hover:text-[#9CA3AF] flex-shrink-0"

@@ -18,9 +18,8 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       </head>
-      <body className="min-h-full bg-[#0F0E0C] text-[#F5F0E8] font-sans antialiased">
+      <body className="min-h-full bg-[#0F0E0C] text-[#F5F0E8] font-sans antialiased" suppressHydrationWarning>
         {children}
-        suppressHydrationWarning
       </body>
     </html>
   );

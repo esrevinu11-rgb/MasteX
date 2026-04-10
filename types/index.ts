@@ -30,29 +30,35 @@ export interface Student {
   subscription_expires_at: string | null;
   discount_pct: number;
   active_referral_count: number;
-  xp_maths: number;
+  xp_core_math: number;
   xp_english: number;
-  xp_science: number;
-  xp_social: number;
+  xp_integrated_science: number;
+  xp_social_studies: number;
   xp_year: number;
   xp_overall: number;
-  rank_maths: string;
+  rank_core_math: string;
   rank_english: string;
-  rank_science: string;
-  rank_social: string;
+  rank_integrated_science: string;
+  rank_social_studies: string;
   rank_year: string;
   rank_overall: string;
-  rank_year_position: number;
-  rank_overall_position: number;
+  rank_position_year: number;
+  rank_position_overall: number;
   study_streak_days: number;
+  longest_streak: number;
   last_study_date: string | null;
+  daily_goal_xp: number;
+  daily_xp_today: number;
+  learning_pace: "slow" | "medium" | "fast";
+  onboarding_completed: boolean;
+  focus_subject: string | null;
   created_at: string;
 }
 
 export interface Subject {
   id: string;
   name: string;
-  code: "maths" | "english" | "science" | "social";
+  code: "core_math" | "english" | "integrated_science" | "social_studies";
   color: string;
   icon: string;
   description: string;
@@ -180,11 +186,11 @@ export interface LeaderboardEntry {
 
 export const SUBJECTS: Subject[] = [
   {
-    id: "maths",
+    id: "core_math",
     name: "Core Mathematics",
-    code: "maths",
+    code: "core_math",
     color: "#F59E0B",
-    icon: "📐",
+    icon: "∑",
     description: "Numbers, algebra, geometry, and statistics",
   },
   {
@@ -192,23 +198,23 @@ export const SUBJECTS: Subject[] = [
     name: "English Language",
     code: "english",
     color: "#A78BFA",
-    icon: "📝",
+    icon: "✎",
     description: "Reading, writing, comprehension, and grammar",
   },
   {
-    id: "science",
+    id: "integrated_science",
     name: "Integrated Science",
-    code: "science",
+    code: "integrated_science",
     color: "#34D399",
-    icon: "🔬",
+    icon: "⚗",
     description: "Physics, chemistry, biology, and earth science",
   },
   {
-    id: "social",
+    id: "social_studies",
     name: "Social Studies",
-    code: "social",
+    code: "social_studies",
     color: "#60A5FA",
-    icon: "🌍",
+    icon: "◎",
     description: "History, geography, civics, and economics",
   },
 ];

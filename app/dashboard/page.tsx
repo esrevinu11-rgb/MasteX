@@ -3,9 +3,17 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { RankBadge } from "@/components/ui/rank-badge";
 import { XPBar } from "@/components/ui/xp-bar";
-import { SUBJECTS, MASTERY_STATES, type Student } from "@/types";
-import { Flame, Star, BookCheck, AlertCircle, ArrowRight, Calendar } from "lucide-react";
-import { formatDate } from "@/lib/utils";
+import { GoalRing } from "@/components/ui/goal-ring";
+import { SUBJECTS, type Student } from "@/types";
+import {
+  Flame,
+  Star,
+  BookCheck,
+  AlertCircle,
+  ArrowRight,
+  Calendar,
+  Target,
+} from "lucide-react";
 
 export default async function DashboardHome() {
   const supabase = await createClient();
@@ -25,55 +33,73 @@ export default async function DashboardHome() {
 
   const s = student as Student;
 
-  // Fetch topic progress for reviews due today
   const today = new Date().toISOString().split("T")[0];
-  const { data: dueTopics } = await supabase
-    .from("topic_progress")
-    .select("*, topics(name, subject_id)")
+
+  // Mastered sub-topics count
+  const { count: masteredCount } = await supabase
+    .from("sub_topic_progress")
+    .select("*", { count: "exact", head: true })
+    .eq("student_id", user.id)
+    .in("mastery_state", ["mastered", "locked_in"]);
+
+  // Due for review today
+  const { data: dueItems } = await supabase
+    .from("sub_topic_progress")
+    .select("*, sub_topics(name, subject_id)")
     .eq("student_id", user.id)
     .lte("next_review_date", today)
     .neq("mastery_state", "unseen")
+    .order("next_review_date", { ascending: true })
     .limit(5);
 
-  // Fetch active quest for current week
-  const weekStart = new Date();
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+  // Active quest this week
   const { data: activeQuests } = await supabase
     .from("weekly_quests")
-    .select("*")
+    .select("id")
     .eq("year_group", s.year_group)
-    .gte("week_end", today)
     .lte("week_start", today)
+    .gte("week_end", today)
     .limit(1);
 
-  const hasActiveQuest = activeQuests && activeQuests.length > 0;
+  const hasActiveQuest = (activeQuests?.length ?? 0) > 0;
 
-  // Subject cards data
-  const subjectXP = {
-    maths: s.xp_maths,
-    english: s.xp_english,
-    science: s.xp_science,
-    social: s.xp_social,
-  };
-  const subjectRank = {
-    maths: s.rank_maths,
-    english: s.rank_english,
-    science: s.rank_science,
-    social: s.rank_social,
-  };
+  // ── Derived values ──────────────────────────────────────────────────────────
 
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const greeting =
+    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const firstName = s.full_name.split(" ")[0];
 
+  const dailyGoalXp = s.daily_goal_xp || 100;
+  const dailyXpToday = s.daily_xp_today || 0;
+  const goalMet = dailyXpToday >= dailyGoalXp;
+
+  const subjectXP = {
+    core_math: s.xp_core_math,
+    english: s.xp_english,
+    integrated_science: s.xp_integrated_science,
+    social_studies: s.xp_social_studies,
+  };
+  const subjectRank = {
+    core_math: s.rank_core_math,
+    english: s.rank_english,
+    integrated_science: s.rank_integrated_science,
+    social_studies: s.rank_social_studies,
+  };
+
+  const focusSubjectInfo = s.focus_subject
+    ? SUBJECTS.find((sub) => sub.id === s.focus_subject)
+    : null;
+
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto space-y-8 animate-fade-in">
-      {/* Header */}
+    <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto space-y-6 animate-fade-in">
+
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-[#9CA3AF] text-sm">{greeting},</p>
-          <h1 className="text-2xl font-black mt-0.5">
-            {firstName} <span className="text-[#F59E0B]">👋</span>
+          <h1 className="text-2xl font-black mt-0.5 text-[#F5F0E8]">
+            {firstName} <span>👋</span>
           </h1>
           <p className="text-sm text-[#6B6860] mt-1">
             Year {s.year_group} · {s.school_name}
@@ -81,35 +107,142 @@ export default async function DashboardHome() {
         </div>
 
         {/* Overall rank */}
-        <div className="flex items-center gap-3 bg-[#1A1916] border border-[#2E2C28] rounded-2xl px-4 py-3">
+        <div className="flex items-center gap-3 bg-[#1A1916] border border-[#2E2C28] rounded-2xl px-4 py-3 flex-none">
           <RankBadge rank={s.rank_overall} size="md" />
           <div>
             <div className="text-xs text-[#6B6860]">Overall rank</div>
-            <div className="text-sm font-bold">#{s.rank_overall_position}</div>
+            <div className="text-sm font-bold">
+              {s.rank_position_overall ? `#${s.rank_position_overall}` : "—"}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-[#1A1916] border border-[#2E2C28] rounded-2xl p-4 text-center">
-          <Star size={20} className="text-[#F59E0B] mx-auto mb-2" />
-          <div className="text-xl font-black">{s.xp_overall.toLocaleString()}</div>
-          <div className="text-xs text-[#6B6860] mt-0.5">Total XP</div>
+      {/* ── Daily goal ring + stats row ──────────────────────────────────────── */}
+      <div className="bg-[#1A1916] border border-[#2E2C28] rounded-2xl p-5 flex items-center gap-5">
+        {/* Ring */}
+        <div className="relative flex-none">
+          <GoalRing
+            current={dailyXpToday}
+            goal={dailyGoalXp}
+            size={80}
+            strokeWidth={7}
+            color={goalMet ? "#34D399" : "#F59E0B"}
+          />
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-sm font-black text-[#F5F0E8] leading-none">
+              {dailyXpToday}
+            </span>
+            <span className="text-[9px] text-[#6B6860] leading-none mt-0.5">XP</span>
+          </div>
         </div>
-        <div className="bg-[#1A1916] border border-[#2E2C28] rounded-2xl p-4 text-center">
-          <Flame size={20} className="text-[#F87171] mx-auto mb-2" />
-          <div className="text-xl font-black">{s.study_streak_days}</div>
-          <div className="text-xs text-[#6B6860] mt-0.5">Day streak</div>
+
+        {/* Goal info */}
+        <div className="flex-1 min-w-0">
+          {goalMet ? (
+            <div className="text-base font-bold text-[#34D399]">Goal met! 🎉</div>
+          ) : (
+            <div className="text-base font-bold text-[#F5F0E8]">
+              {dailyXpToday} / {dailyGoalXp} XP today
+            </div>
+          )}
+          <div className="text-xs text-[#6B6860] mt-1">
+            {goalMet
+              ? "Amazing — come back tomorrow to keep your streak!"
+              : `${dailyGoalXp - dailyXpToday} XP to hit your daily goal`}
+          </div>
+          <div className="mt-2 h-1.5 bg-[#2E2C28] rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-700"
+              style={{
+                width: `${Math.min((dailyXpToday / dailyGoalXp) * 100, 100)}%`,
+                backgroundColor: goalMet ? "#34D399" : "#F59E0B",
+              }}
+            />
+          </div>
         </div>
-        <div className="bg-[#1A1916] border border-[#2E2C28] rounded-2xl p-4 text-center">
-          <BookCheck size={20} className="text-[#34D399] mx-auto mb-2" />
-          <div className="text-xl font-black">0</div>
-          <div className="text-xs text-[#6B6860] mt-0.5">Mastered</div>
+
+        {/* Quick stats */}
+        <div className="hidden sm:flex flex-col gap-2 flex-none">
+          <div className="flex items-center gap-2 text-sm">
+            <Flame size={14} className="text-[#F87171]" />
+            <span className="font-bold">{s.study_streak_days}</span>
+            <span className="text-[#6B6860] text-xs">day streak</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <Star size={14} className="text-[#F59E0B]" />
+            <span className="font-bold">{s.xp_overall.toLocaleString()}</span>
+            <span className="text-[#6B6860] text-xs">total XP</span>
+          </div>
         </div>
       </div>
 
-      {/* Inactive subscription banner */}
+      {/* ── Mobile stat pills ────────────────────────────────────────────────── */}
+      <div className="flex gap-3 sm:hidden">
+        <div className="flex-1 bg-[#1A1916] border border-[#2E2C28] rounded-2xl p-3 flex items-center gap-2">
+          <Flame size={16} className="text-[#F87171]" />
+          <div>
+            <div className="text-base font-black">{s.study_streak_days}</div>
+            <div className="text-[10px] text-[#6B6860]">Day streak</div>
+          </div>
+        </div>
+        <div className="flex-1 bg-[#1A1916] border border-[#2E2C28] rounded-2xl p-3 flex items-center gap-2">
+          <Star size={16} className="text-[#F59E0B]" />
+          <div>
+            <div className="text-base font-black">{s.xp_overall.toLocaleString()}</div>
+            <div className="text-[10px] text-[#6B6860]">Total XP</div>
+          </div>
+        </div>
+        <div className="flex-1 bg-[#1A1916] border border-[#2E2C28] rounded-2xl p-3 flex items-center gap-2">
+          <BookCheck size={16} className="text-[#34D399]" />
+          <div>
+            <div className="text-base font-black">{masteredCount ?? 0}</div>
+            <div className="text-[10px] text-[#6B6860]">Mastered</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Focus subject banner ─────────────────────────────────────────────── */}
+      {focusSubjectInfo && (
+        <Link href={`/dashboard/study?subject=${focusSubjectInfo.id}`}>
+          <div
+            className="rounded-2xl p-4 border flex items-center gap-4 hover:opacity-90 transition-opacity"
+            style={{
+              borderColor: `${focusSubjectInfo.color}30`,
+              backgroundColor: `${focusSubjectInfo.color}08`,
+            }}
+          >
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-xl flex-none"
+              style={{ backgroundColor: `${focusSubjectInfo.color}20` }}
+            >
+              {focusSubjectInfo.icon}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div
+                className="text-xs font-semibold uppercase tracking-widest"
+                style={{ color: focusSubjectInfo.color }}
+              >
+                Your focus
+              </div>
+              <div className="text-sm font-bold text-[#F5F0E8] mt-0.5">
+                {focusSubjectInfo.name}
+              </div>
+              <div className="text-xs text-[#6B6860] mt-0.5 truncate">
+                We&apos;ve prioritised this in your study plan
+              </div>
+            </div>
+            <div className="flex items-center gap-1 flex-none">
+              <span className="text-xs font-medium" style={{ color: focusSubjectInfo.color }}>
+                Study now
+              </span>
+              <ArrowRight size={14} style={{ color: focusSubjectInfo.color }} />
+            </div>
+          </div>
+        </Link>
+      )}
+
+      {/* ── Inactive subscription banner ─────────────────────────────────────── */}
       {s.subscription_status === "inactive" && (
         <div className="bg-[#F59E0B]/10 border border-[#F59E0B]/30 rounded-2xl p-4 flex items-start gap-3">
           <AlertCircle size={18} className="text-[#F59E0B] flex-shrink-0 mt-0.5" />
@@ -122,38 +255,44 @@ export default async function DashboardHome() {
         </div>
       )}
 
-      {/* Quest alert */}
+      {/* ── Weekly quest alert ───────────────────────────────────────────────── */}
       {hasActiveQuest && (
         <Link href="/dashboard/quests">
           <div className="bg-[#34D399]/10 border border-[#34D399]/30 rounded-2xl p-4 flex items-center gap-3 hover:border-[#34D399]/50 transition-colors">
-            <div className="w-10 h-10 bg-[#34D399]/15 rounded-xl flex items-center justify-center flex-shrink-0">
+            <div className="w-10 h-10 bg-[#34D399]/15 rounded-xl flex items-center justify-center flex-none">
               <Calendar size={18} className="text-[#34D399]" />
             </div>
             <div className="flex-1">
-              <div className="text-sm font-semibold text-[#34D399]">Weekly quest available!</div>
+              <div className="text-sm font-semibold text-[#34D399]">
+                Weekly quest available!
+              </div>
               <div className="text-xs text-[#9CA3AF] mt-0.5">
                 New quests are up — complete all 4 subjects for max XP.
               </div>
             </div>
-            <ArrowRight size={16} className="text-[#34D399]" />
+            <ArrowRight size={16} className="text-[#34D399] flex-none" />
           </div>
         </Link>
       )}
 
-      {/* Subject cards */}
+      {/* ── Subject cards ────────────────────────────────────────────────────── */}
       <div>
-        <h2 className="text-sm font-semibold text-[#6B6860] uppercase tracking-widest mb-4">
+        <h2 className="text-xs font-semibold text-[#6B6860] uppercase tracking-widest mb-4">
           Your Subjects
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {SUBJECTS.map((subject) => {
-            const xp = subjectXP[subject.code as keyof typeof subjectXP] || 0;
-            const rank = subjectRank[subject.code as keyof typeof subjectRank] || "F3";
+            const xp = subjectXP[subject.code as keyof typeof subjectXP] ?? 0;
+            const rank = subjectRank[subject.code as keyof typeof subjectRank] ?? "F3";
+            const isFocus = s.focus_subject === subject.id;
             return (
               <Link
                 key={subject.id}
                 href={`/dashboard/study?subject=${subject.id}`}
-                className="bg-[#1A1916] border border-[#2E2C28] rounded-2xl p-5 hover:border-[#3E3C38] transition-all group"
+                className={`bg-[#1A1916] border rounded-2xl p-5 hover:border-[#3E3C38] transition-all group ${
+                  isFocus ? "border-opacity-60" : "border-[#2E2C28]"
+                }`}
+                style={isFocus ? { borderColor: `${subject.color}50` } : {}}
               >
                 <div className="flex items-start justify-between gap-3 mb-4">
                   <div className="flex items-center gap-3">
@@ -164,11 +303,20 @@ export default async function DashboardHome() {
                       {subject.icon}
                     </div>
                     <div>
-                      <div className="text-sm font-semibold">{subject.name}</div>
-                      <div className="text-xs text-[#6B6860]">{xp.toLocaleString()} XP</div>
+                      <div className="text-sm font-semibold text-[#F5F0E8]">
+                        {subject.name}
+                      </div>
+                      <div className="text-xs text-[#6B6860]">
+                        {xp.toLocaleString()} XP
+                      </div>
                     </div>
                   </div>
-                  <RankBadge rank={rank} size="sm" />
+                  <div className="flex items-center gap-2 flex-none">
+                    {isFocus && (
+                      <Target size={12} style={{ color: subject.color }} />
+                    )}
+                    <RankBadge rank={rank} size="sm" />
+                  </div>
                 </div>
                 <XPBar
                   current={xp % 500}
@@ -177,8 +325,13 @@ export default async function DashboardHome() {
                   color={subject.color}
                 />
                 <div className="flex justify-between items-center mt-3">
-                  <span className="text-xs text-[#6B6860]">0 topics mastered</span>
-                  <span className="text-xs font-medium group-hover:text-[#F59E0B] transition-colors" style={{ color: subject.color }}>
+                  <span className="text-xs text-[#6B6860]">
+                    {masteredCount ?? 0} topics mastered
+                  </span>
+                  <span
+                    className="text-xs font-medium group-hover:opacity-80 transition-opacity"
+                    style={{ color: subject.color }}
+                  >
                     Study now →
                   </span>
                 </div>
@@ -188,37 +341,37 @@ export default async function DashboardHome() {
         </div>
       </div>
 
-      {/* Due for review */}
-      {dueTopics && dueTopics.length > 0 && (
+      {/* ── Due for review ───────────────────────────────────────────────────── */}
+      {dueItems && dueItems.length > 0 && (
         <div>
-          <h2 className="text-sm font-semibold text-[#6B6860] uppercase tracking-widest mb-4">
+          <h2 className="text-xs font-semibold text-[#6B6860] uppercase tracking-widest mb-4">
             Due for Review Today
           </h2>
           <div className="space-y-2">
-            {dueTopics.map((tp: Record<string, unknown>) => {
-              const topic = tp.topics as { name: string; subject_id: string } | null;
-              const subject = SUBJECTS.find((s) => s.id === topic?.subject_id);
-              const state = MASTERY_STATES[tp.mastery_state as keyof typeof MASTERY_STATES];
+            {dueItems.map((item: Record<string, unknown>) => {
+              const subTopic = item.sub_topics as { name: string; subject_id: string } | null;
+              const subject = SUBJECTS.find((s) => s.id === subTopic?.subject_id);
               return (
                 <Link
-                  key={tp.topic_id as string}
-                  href={`/dashboard/study?topic=${tp.topic_id}&mode=review`}
+                  key={item.id as string}
+                  href={`/dashboard/study?subtopic=${item.sub_topic_id}&mode=review`}
                   className="flex items-center gap-4 bg-[#1A1916] border border-[#2E2C28] rounded-xl px-4 py-3 hover:border-[#3E3C38] transition-colors"
                 >
                   <div
-                    className="w-8 h-8 rounded-lg flex items-center justify-center text-sm"
-                    style={{ backgroundColor: `${subject?.color}20` }}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-sm flex-none"
+                    style={{ backgroundColor: `${subject?.color ?? "#6B6860"}20` }}
                   >
-                    {subject?.icon}
+                    {subject?.icon ?? "📖"}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{topic?.name}</div>
-                    <div className="text-xs" style={{ color: state?.color }}>
-                      {state?.label}
+                    <div className="text-sm font-medium truncate text-[#F5F0E8]">
+                      {subTopic?.name ?? "Sub-topic"}
+                    </div>
+                    <div className="text-xs text-[#6B6860] mt-0.5">
+                      {subject?.name} · Review due
                     </div>
                   </div>
-                  <div className="text-xs text-[#6B6860]">Review</div>
-                  <ArrowRight size={14} className="text-[#6B6860]" />
+                  <ArrowRight size={14} className="text-[#6B6860] flex-none" />
                 </Link>
               );
             })}

@@ -60,7 +60,7 @@ export function Sidebar({ student }: SidebarProps) {
           <RankBadge rank={student.rank_overall} size="md" />
           <div className="min-w-0">
             <div className="text-sm font-semibold truncate">{student.full_name}</div>
-            <div className="text-xs text-[#6B6860]">Year {student.year_group} · #{student.rank_overall_position}</div>
+            <div className="text-xs text-[#6B6860]">Year {student.year_group} · #{student.rank_position_overall}</div>
           </div>
         </div>
         <XPBar current={xpInLevel} max={xpToNext} showValues={false} />
