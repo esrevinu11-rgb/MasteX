@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Users, CreditCard, LogOut } from "lucide-react";
+import { LayoutDashboard, Users, CreditCard, BookOpen, LogOut } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 const navLinks = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/students", label: "Students", icon: Users },
   { href: "/admin/payments", label: "Payments", icon: CreditCard },
+  { href: "/admin/content", label: "Content", icon: BookOpen },
 ];
 
 export function AdminSidebar() {
