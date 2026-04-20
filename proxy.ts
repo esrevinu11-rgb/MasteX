@@ -63,9 +63,11 @@ export async function proxy(request: NextRequest) {
   }
 
   // ── /dashboard/** ─────────────────────────────────────────────────────────
-  // Requires auth. If onboarding not done, redirect there first.
+  // Requires auth + completed onboarding.
   if (pathname.startsWith("/dashboard")) {
+    console.log(`[proxy] /dashboard request — user: ${user?.id ?? "none"}`);
     if (!user) {
+      console.log("[proxy] /dashboard → no session, redirecting to /auth/login");
       return NextResponse.redirect(new URL("/auth/login", request.url));
     }
     const { data: student } = await supabase
@@ -73,17 +75,28 @@ export async function proxy(request: NextRequest) {
       .select("onboarding_completed")
       .eq("id", user.id)
       .single();
-    if (student && !student.onboarding_completed) {
+    // Redirect to onboarding if: no student row yet, OR onboarding not completed.
+    // Bug fix: previously `student && !onboarding_completed` passed through when
+    // student was null, letting the layout redirect to /auth/login, which then
+    // looped back to /dashboard (because the auth/login check used strict === false
+    // against undefined). Now we catch the null-student case here instead.
+    if (!student || !student.onboarding_completed) {
+      console.log(
+        `[proxy] /dashboard → onboarding_completed=${student?.onboarding_completed ?? "no-row"}, redirecting to /onboarding`
+      );
       return NextResponse.redirect(new URL("/onboarding", request.url));
     }
+    console.log("[proxy] /dashboard → session OK, passing through");
     return supabaseResponse;
   }
 
   // ── /auth/login and /auth/signup ──────────────────────────────────────────
   // Already signed in → redirect away from auth pages.
   if (pathname === "/auth/login" || pathname === "/auth/signup") {
+    console.log(`[proxy] ${pathname} request — user: ${user?.id ?? "none"}`);
     if (user) {
       if (user.email === adminEmail) {
+        console.log("[proxy] auth page → admin user, redirecting to /admin");
         return NextResponse.redirect(new URL("/admin", request.url));
       }
       const { data: student } = await supabase
@@ -91,8 +104,13 @@ export async function proxy(request: NextRequest) {
         .select("onboarding_completed")
         .eq("id", user.id)
         .single();
-      const destination =
-        student?.onboarding_completed === false ? "/onboarding" : "/dashboard";
+      // Bug fix: previously used `=== false` (strict equality) which evaluated
+      // `undefined === false` as false when student was null — silently routing
+      // users with no student record to /dashboard, creating the redirect loop.
+      // Now uses a truthy check: any non-true value (null row, false, null
+      // column) routes to /onboarding.
+      const destination = student?.onboarding_completed ? "/dashboard" : "/onboarding";
+      console.log(`[proxy] auth page → logged-in user, redirecting to ${destination}`);
       return NextResponse.redirect(new URL(destination, request.url));
     }
     return supabaseResponse;

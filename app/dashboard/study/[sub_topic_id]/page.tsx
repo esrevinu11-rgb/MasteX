@@ -59,14 +59,14 @@ interface Question {
   id: string;
   frame: string;
   cognitive_level: number;
-  type: "mcq" | "fill_blank" | "short_answer";
+  type: "mcq" | "short_answer" | "theory";
+  paper: string | null;
   prompt: string;
   options: string[] | null;
   correct_answer: string | null;
   mark_scheme: string;
   explanation: string;
   xp_reward: number;
-  difficulty: string;
 }
 
 interface QuestionResult {
@@ -77,22 +77,38 @@ interface QuestionResult {
   self_assessment?: "correct" | "partial" | "wrong";
 }
 
-const FRAME_ORDER = [
-  "definition",
-  "fill_blank",
-  "application",
-  "data_interpretation",
-  "comparison",
-  "evaluation",
-];
-
 const FRAME_LABELS: Record<string, string> = {
-  definition: "Definition",
-  fill_blank: "Fill in the blank",
-  application: "Application",
-  data_interpretation: "Data Interpretation",
-  comparison: "Comparison",
-  evaluation: "Evaluation",
+  // Core Mathematics
+  mcq_objective:             "Multiple Choice",
+  short_answer_theory:       "Short Answer",
+  multi_step_theory:         "Multi-Step Problem",
+  story_problem:             "Story Problem",
+  data_interpretation:       "Data Interpretation",
+  proof_justify:             "Proof & Justify",
+  // English Language
+  comprehension_factual:     "Comprehension",
+  comprehension_inferential: "Inference",
+  essay_writing:             "Essay Writing",
+  letter_writing:            "Letter Writing",
+  oral_english:              "Oral English",
+  // Integrated Science
+  short_structured:          "Structured",
+  calculation:               "Calculation",
+  activity_of_integration:   "Application",
+  evaluate_discuss:          "Evaluate & Discuss",
+  practical_data:            "Practical",
+  // Social Studies
+  short_answer:              "Short Answer",
+  explain_suggest:           "Explain & Suggest",
+  discuss_analyse:           "Discuss & Analyse",
+  diagram_based:             "Diagram",
+  evaluate_assess:           "Evaluate & Assess",
+};
+
+const PAPER_LABELS: Record<string, string> = {
+  paper1: "Paper 1 · Objective",
+  paper2: "Paper 2 · Theory",
+  paper3: "Paper 3 · Practical",
 };
 
 const PHASE_LABELS: Record<Exclude<Phase, "loading" | "saving">, string> = {
@@ -313,19 +329,17 @@ export default function StudySessionPage() {
       }
     }
 
-    // Fetch questions in FRAME_ORDER
+    // Fetch questions ordered by cognitive_level (easiest first)
     const { data: qs } = await supabase
       .from("questions")
       .select(
-        "id, frame, cognitive_level, type, prompt, options, correct_answer, mark_scheme, explanation, xp_reward, difficulty"
+        "id, frame, cognitive_level, type, paper, prompt, options, correct_answer, mark_scheme, explanation, xp_reward"
       )
-      .eq("sub_topic_id", sub_topic_id);
+      .eq("sub_topic_id", sub_topic_id)
+      .order("cognitive_level", { ascending: true })
+      .limit(6);
 
-    const sorted = FRAME_ORDER.flatMap(
-      (frame) => (qs ?? []).filter((q) => q.frame === frame)
-    ).slice(0, 6);
-
-    setQuestions(sorted as Question[]);
+    setQuestions((qs ?? []) as Question[]);
 
     // Resume at persisted phase or start from explanation
     const resumePhase = persisted.phase ?? "explanation";
@@ -362,13 +376,13 @@ export default function StudySessionPage() {
         : textAnswer.trim();
     if (!answer) return;
 
-    if (currentQ.type === "short_answer") {
+    if (currentQ.type === "short_answer" || currentQ.type === "theory") {
       // Reveal mark scheme and ask self-assessment
       setCheckedAnswer(true);
       return;
     }
 
-    // MCQ / fill_blank — auto grade
+    // MCQ — auto grade
     const correct = currentQ.correct_answer
       ? answer.trim().toLowerCase() === currentQ.correct_answer.trim().toLowerCase()
       : false;
@@ -891,11 +905,16 @@ export default function StudySessionPage() {
           </span>
         </div>
 
-        {/* Frame label + XP */}
-        <div className="flex items-center gap-2 mb-2">
+        {/* Frame label + paper + XP */}
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-[#252320] text-[#9CA3AF]">
             {FRAME_LABELS[currentQ?.frame] ?? currentQ?.frame}
           </span>
+          {currentQ?.paper && (
+            <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-[#1A1916] text-[#6B6860] border border-[#2E2C28]">
+              {PAPER_LABELS[currentQ.paper] ?? currentQ.paper}
+            </span>
+          )}
           <span className="text-xs font-medium px-2.5 py-1 rounded-lg bg-[#F59E0B]/10 text-[#F59E0B] border border-[#F59E0B]/20">
             +{currentQ?.xp_reward} XP
           </span>
@@ -930,22 +949,16 @@ export default function StudySessionPage() {
           </div>
         )}
 
-        {currentQ?.type === "fill_blank" && !isChecked && (
-          <input
-            type="text"
-            value={textAnswer}
-            onChange={(e) => setTextAnswer(e.target.value)}
-            placeholder="Type your answer…"
-            className="w-full bg-[#1A1916] border border-[#2E2C28] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#F59E0B] transition-colors"
-          />
-        )}
-
-        {currentQ?.type === "short_answer" && !isChecked && (
+        {(currentQ?.type === "short_answer" || currentQ?.type === "theory") && !isChecked && (
           <textarea
             value={textAnswer}
             onChange={(e) => setTextAnswer(e.target.value)}
-            placeholder="Write your answer in 2-4 sentences…"
-            rows={4}
+            placeholder={
+              currentQ.type === "theory"
+                ? "Write your full answer here. Show all working where required…"
+                : "Write your answer in 2-4 sentences…"
+            }
+            rows={currentQ.type === "theory" ? 6 : 4}
             className="w-full bg-[#1A1916] border border-[#2E2C28] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#F59E0B] transition-colors resize-none"
           />
         )}
@@ -960,7 +973,7 @@ export default function StudySessionPage() {
                 : "bg-[#F87171]/10 border-[#F87171]/30"
             )}
           >
-            {currentQ?.type !== "short_answer" && (
+            {currentQ?.type === "mcq" && (
               <div className="flex items-center gap-2">
                 {isCorrect ? (
                   <Check size={18} className="text-[#34D399]" />
@@ -978,8 +991,8 @@ export default function StudySessionPage() {
               </div>
             )}
 
-            {/* Short answer: show mark scheme + self assess */}
-            {currentQ?.type === "short_answer" && !selfAssessmentQ && (
+            {/* Short answer / theory: show mark scheme + self assess */}
+            {(currentQ?.type === "short_answer" || currentQ?.type === "theory") && !selfAssessmentQ && (
               <>
                 <div className="text-xs font-bold text-[#6B6860] uppercase tracking-wider">
                   Mark Scheme
@@ -1012,8 +1025,8 @@ export default function StudySessionPage() {
               </>
             )}
 
-            {/* Correct answer for non-short-answer */}
-            {currentQ?.type !== "short_answer" && !isCorrect && currentQ?.correct_answer && (
+            {/* Correct answer for MCQ */}
+            {currentQ?.type === "mcq" && !isCorrect && currentQ?.correct_answer && (
               <div className="text-sm">
                 <span className="text-xs text-[#6B6860]">Correct answer: </span>
                 <span className="font-medium text-[#34D399]">{currentQ.correct_answer}</span>
@@ -1021,7 +1034,7 @@ export default function StudySessionPage() {
             )}
 
             {/* Explanation */}
-            {(currentQ?.type !== "short_answer" || selfAssessmentQ) && (
+            {(currentQ?.type === "mcq" || selfAssessmentQ) && (
               <p className="text-sm text-[#D1D5DB] leading-relaxed">
                 {currentQ?.explanation}
               </p>
@@ -1035,16 +1048,14 @@ export default function StudySessionPage() {
             type="button"
             onClick={checkAnswer}
             disabled={
-              currentQ?.type === "mcq"
-                ? !selectedOption
-                : !textAnswer.trim()
+              currentQ?.type === "mcq" ? !selectedOption : !textAnswer.trim()
             }
             className="w-full flex items-center justify-center gap-2 bg-[#F59E0B] hover:bg-[#D97706] disabled:opacity-40 text-black font-bold py-4 rounded-2xl transition-all"
           >
             Check answer <ChevronRight size={18} />
           </button>
         ) : (
-          (currentQ?.type !== "short_answer" || selfAssessmentQ) && (
+          (currentQ?.type === "mcq" || selfAssessmentQ) && (
             <button
               type="button"
               onClick={nextQuestion}
@@ -1186,14 +1197,19 @@ export default function StudySessionPage() {
                     {FRAME_LABELS[r.question.frame]}
                   </div>
                   <div className="text-sm text-[#F5F0E8] truncate">{r.question.prompt}</div>
-                  {!r.is_correct && r.question.correct_answer && (
+                  {!r.is_correct && r.question.type === "mcq" && r.question.correct_answer && (
                     <div className="text-xs text-[#34D399] mt-1">
                       ✓ {r.question.correct_answer}
                     </div>
                   )}
-                  {!r.is_correct && (
+                  {!r.is_correct && r.question.type === "mcq" && (
                     <div className="text-xs text-[#6B6860] mt-1 leading-snug">
                       {r.question.explanation}
+                    </div>
+                  )}
+                  {(r.question.type === "short_answer" || r.question.type === "theory") && r.self_assessment && (
+                    <div className="text-xs text-[#6B6860] mt-1">
+                      Self-assessed: <span className="capitalize">{r.self_assessment}</span>
                     </div>
                   )}
                 </div>

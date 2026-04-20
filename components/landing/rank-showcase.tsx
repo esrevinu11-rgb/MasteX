@@ -2,7 +2,7 @@ import { getRankInfo, ALL_RANKS } from "@/lib/ranking";
 import { RankBadge } from "@/components/ui/rank-badge";
 
 const mockLeaderboard = [
-  { name: "Ama Serwaa", school: "Presbyterian Boys' SHS", xp: 18450, rank: "S", pos: 1, year: 2 },
+  { name: "Kwesi Boateng", school: "Presbyterian Boys' SHS", xp: 18450, rank: "S", pos: 1, year: 2 },
   { name: "Kweku Mensah", school: "Achimota School", xp: 17820, rank: "A1", pos: 2, year: 3 },
   { name: "Abena Osei", school: "Wesley Girls' SHS", xp: 16990, rank: "A1", pos: 3, year: 2 },
   { name: "Kofi Darko", school: "Prempeh College", xp: 15700, rank: "A2", pos: 4, year: 3 },

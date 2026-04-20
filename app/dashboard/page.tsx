@@ -35,12 +35,37 @@ export default async function DashboardHome() {
 
   const today = new Date().toISOString().split("T")[0];
 
-  // Mastered sub-topics count
+  // Mastered sub-topics count (overall)
   const { count: masteredCount } = await supabase
     .from("sub_topic_progress")
     .select("*", { count: "exact", head: true })
     .eq("student_id", user.id)
     .in("mastery_state", ["mastered", "locked_in"]);
+
+  // Per-subject mastered counts
+  const subjectIds = ["core_math", "english", "integrated_science", "social_studies"];
+  const masteredBySubjectResults = await Promise.all(
+    subjectIds.map((sid) =>
+      supabase
+        .from("sub_topic_progress")
+        .select("*", { count: "exact", head: true })
+        .eq("student_id", user.id)
+        .eq("subject_id", sid)
+        .in("mastery_state", ["mastered", "locked_in"])
+    )
+  );
+  const masteredBySubject: Record<string, number> = {};
+  subjectIds.forEach((sid, i) => {
+    masteredBySubject[sid] = masteredBySubjectResults[i].count ?? 0;
+  });
+
+  // Recent activity (last 5 study sessions)
+  const { data: recentSessions } = await supabase
+    .from("study_sessions")
+    .select("id, subject_id, sub_topic_id, xp_earned, questions_correct, questions_attempted, created_at, sub_topics(name)")
+    .eq("student_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(5);
 
   // Due for review today
   const { data: dueItems } = await supabase
@@ -326,7 +351,7 @@ export default async function DashboardHome() {
                 />
                 <div className="flex justify-between items-center mt-3">
                   <span className="text-xs text-[#6B6860]">
-                    {masteredCount ?? 0} topics mastered
+                    {masteredBySubject[subject.id] ?? 0} sub-topics mastered
                   </span>
                   <span
                     className="text-xs font-medium group-hover:opacity-80 transition-opacity"
@@ -340,6 +365,63 @@ export default async function DashboardHome() {
           })}
         </div>
       </div>
+
+      {/* ── Recent activity ──────────────────────────────────────────────────── */}
+      {recentSessions && recentSessions.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold text-[#6B6860] uppercase tracking-widest mb-4">
+            Recent Activity
+          </h2>
+          <div className="space-y-2">
+            {recentSessions.map((session: Record<string, unknown>) => {
+              const subTopicName =
+                (session.sub_topics as { name: string } | null)?.name ?? "Session";
+              const subject = SUBJECTS.find((s) => s.id === (session.subject_id as string));
+              const accuracy =
+                (session.questions_attempted as number) > 0
+                  ? Math.round(
+                      ((session.questions_correct as number) /
+                        (session.questions_attempted as number)) *
+                        100
+                    )
+                  : 0;
+              const date = new Date(session.created_at as string);
+              const dateLabel = date.toLocaleDateString("en-GB", {
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+              });
+              return (
+                <div
+                  key={session.id as string}
+                  className="flex items-center gap-4 bg-[#1A1916] border border-[#2E2C28] rounded-xl px-4 py-3"
+                >
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-sm flex-none"
+                    style={{ backgroundColor: `${subject?.color ?? "#6B6860"}20` }}
+                  >
+                    {subject?.icon ?? "📖"}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate text-[#F5F0E8]">
+                      {subTopicName}
+                    </div>
+                    <div className="text-xs text-[#6B6860] mt-0.5">
+                      {subject?.name} · {dateLabel}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-0.5 flex-none">
+                    <span className="text-xs font-bold text-[#F59E0B]">
+                      +{session.xp_earned as number} XP
+                    </span>
+                    <span className="text-[10px] text-[#6B6860]">{accuracy}% correct</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Due for review ───────────────────────────────────────────────────── */}
       {dueItems && dueItems.length > 0 && (

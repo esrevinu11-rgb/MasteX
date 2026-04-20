@@ -20,6 +20,8 @@ interface Topic {
   name: string;
   description: string | null;
   order_index: number;
+  strand_name: string | null;
+  strand_order: number;
   prerequisite_ids: string[];
   year_group: number;
   sub_topics: SubTopicRow[];
@@ -74,9 +76,10 @@ export default function StudySelectPage() {
     // Fetch topics with sub_topics
     const { data: topicsData } = await supabase
       .from("topics")
-      .select("*, sub_topics(id, topic_id, name, description, estimated_minutes, order_index, difficulty_level)")
+      .select("*, strand_name, strand_order, sub_topics(id, topic_id, name, description, estimated_minutes, order_index, difficulty_level)")
       .eq("subject_id", subjectId)
       .eq("year_group", 1)
+      .order("strand_order")
       .order("order_index");
 
     if (!topicsData) { setLoading(false); return; }
@@ -127,7 +130,7 @@ export default function StudySelectPage() {
     setLoading(false);
   }
 
-  function isTopicLocked(topic: Topic): boolean {
+  function hasUnmetPrerequisite(topic: Topic): boolean {
     if (!topic.prerequisite_ids?.length) return false;
     return topic.prerequisite_ids.some((pid) => !masteredTopics.has(pid));
   }
@@ -136,6 +139,17 @@ export default function StudySelectPage() {
     if (!state) return "#2E2C28";
     return MASTERY_STATES[state]?.color ?? "#2E2C28";
   }
+
+  // Group topics by strand_name (preserving order)
+  const strandMap = new Map<string, Topic[]>();
+  for (const t of topics) {
+    const sn = t.strand_name ?? "General";
+    if (!strandMap.has(sn)) strandMap.set(sn, []);
+    strandMap.get(sn)!.push(t);
+  }
+
+  const DIFFICULTY_LABELS: Record<number, string> = { 1: "Easy", 2: "Med", 3: "Hard" };
+  const DIFFICULTY_COLORS: Record<number, string> = { 1: "#34D399", 2: "#F59E0B", 3: "#F87171" };
 
   const subject = SUBJECTS.find((s) => s.id === selectedSubject) ?? SUBJECTS[0];
 
@@ -190,168 +204,176 @@ export default function StudySelectPage() {
           No topics found for this subject yet.
         </div>
       ) : (
-        <div className="space-y-3">
-          {topics.map((topic) => {
-            const locked = isTopicLocked(topic);
-            const mastery = topicMastery[topic.id] ?? 0;
-            const isExpanded = expandedTopic === topic.id;
-            const subTopics: SubTopicRow[] = topic.sub_topics ?? [];
-
-            return (
-              <div
-                key={topic.id}
-                className="bg-[#1A1916] border border-[#2E2C28] rounded-2xl overflow-hidden"
-              >
-                {/* Topic header */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (locked) return;
-                    setExpandedTopic(isExpanded ? null : topic.id);
-                  }}
-                  disabled={locked}
-                  className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-[#252320] transition-colors disabled:cursor-not-allowed"
+        <div className="space-y-6">
+          {Array.from(strandMap.entries()).map(([strandName, strandTopics]) => (
+            <div key={strandName}>
+              {/* Strand header */}
+              <div className="flex items-center gap-3 mb-3">
+                <span
+                  className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-lg"
+                  style={{ color: subject.color, backgroundColor: `${subject.color}15` }}
                 >
-                  {/* Icon / lock */}
-                  <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center flex-none"
-                    style={{
-                      backgroundColor: locked
-                        ? "#2E2C28"
-                        : `${subject.color}20`,
-                    }}
-                  >
-                    {locked ? (
-                      <Lock size={16} className="text-[#4B5563]" />
-                    ) : (
-                      <span style={{ color: subject.color }}>{subject.icon}</span>
-                    )}
-                  </div>
+                  {strandName}
+                </span>
+                <div className="flex-1 h-px bg-[#2E2C28]" />
+              </div>
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-sm font-semibold ${
-                          locked ? "text-[#4B5563]" : "text-[#F5F0E8]"
-                        }`}
+              <div className="space-y-3">
+                {strandTopics.map((topic) => {
+                  const prereqWarning = hasUnmetPrerequisite(topic);
+                  const mastery = topicMastery[topic.id] ?? 0;
+                  const isExpanded = expandedTopic === topic.id;
+                  const subTopics: SubTopicRow[] = topic.sub_topics ?? [];
+
+                  return (
+                    <div
+                      key={topic.id}
+                      className="bg-[#1A1916] border border-[#2E2C28] rounded-2xl overflow-hidden"
+                    >
+                      {/* Topic header */}
+                      <button
+                        type="button"
+                        onClick={() => setExpandedTopic(isExpanded ? null : topic.id)}
+                        className="w-full text-left px-5 py-4 flex items-center gap-4 hover:bg-[#252320] transition-colors"
                       >
-                        {topic.name}
-                      </span>
-                      {locked && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#2E2C28] text-[#4B5563] uppercase tracking-wider">
-                          Locked
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 mt-1.5">
-                      {/* Progress bar */}
-                      <div className="flex-1 h-1.5 bg-[#2E2C28] rounded-full overflow-hidden">
+                        {/* Icon */}
                         <div
-                          className="h-full rounded-full transition-all"
-                          style={{
-                            width: `${mastery * 100}%`,
-                            backgroundColor: subject.color,
-                          }}
-                        />
-                      </div>
-                      <span className="text-xs text-[#6B6860] flex-none">
-                        {subTopics.length} sub-topics
-                      </span>
-                    </div>
-                  </div>
-
-                  {!locked && (
-                    <ChevronDown
-                      size={16}
-                      className={`text-[#6B6860] flex-none transition-transform ${
-                        isExpanded ? "rotate-180" : ""
-                      }`}
-                    />
-                  )}
-                </button>
-
-                {/* Sub-topics */}
-                {isExpanded && (
-                  <div className="border-t border-[#2E2C28] divide-y divide-[#2E2C28]">
-                    {subTopics.map((st) => {
-                      const prog = progress[st.id];
-                      const state = prog?.mastery_state;
-                      const isDue =
-                        prog?.next_review_date &&
-                        prog.next_review_date <= today;
-                      const stateInfo = state ? MASTERY_STATES[state] : null;
-
-                      return (
-                        <div
-                          key={st.id}
-                          className="flex items-center gap-4 px-5 py-3.5 hover:bg-[#252320] transition-colors"
+                          className="w-10 h-10 rounded-xl flex items-center justify-center flex-none"
+                          style={{ backgroundColor: `${subject.color}20` }}
                         >
-                          {/* Mastery dot */}
-                          <div
-                            className="w-2.5 h-2.5 rounded-full flex-none"
-                            style={{
-                              backgroundColor: getMasteryColor(state),
-                            }}
-                          />
+                          <span style={{ color: subject.color }}>{subject.icon}</span>
+                        </div>
 
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm text-[#F5F0E8] font-medium truncate">
-                              {st.name}
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5">
-                              <Clock size={10} className="text-[#4B5563]" />
-                              <span className="text-xs text-[#6B6860]">
-                                {st.estimated_minutes} min
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-[#F5F0E8]">
+                              {topic.name}
+                            </span>
+                            {prereqWarning && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#F59E0B]/15 text-[#F59E0B] uppercase tracking-wider flex items-center gap-1">
+                                <Lock size={8} /> Prereq not met
                               </span>
-                              {stateInfo && (
-                                <span
-                                  className="text-xs font-medium px-1.5 py-0.5 rounded"
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 mt-1.5">
+                            {/* Progress bar */}
+                            <div className="flex-1 h-1.5 bg-[#2E2C28] rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{
+                                  width: `${mastery * 100}%`,
+                                  backgroundColor: subject.color,
+                                }}
+                              />
+                            </div>
+                            <span className="text-xs text-[#6B6860] flex-none">
+                              {subTopics.length} sub-topics
+                            </span>
+                          </div>
+                        </div>
+
+                        <ChevronDown
+                          size={16}
+                          className={`text-[#6B6860] flex-none transition-transform ${
+                            isExpanded ? "rotate-180" : ""
+                          }`}
+                        />
+                      </button>
+
+                      {/* Sub-topics */}
+                      {isExpanded && (
+                        <div className="border-t border-[#2E2C28] divide-y divide-[#2E2C28]">
+                          {subTopics.map((st) => {
+                            const prog = progress[st.id];
+                            const state = prog?.mastery_state;
+                            const isDue =
+                              prog?.next_review_date &&
+                              prog.next_review_date <= today;
+                            const stateInfo = state ? MASTERY_STATES[state] : null;
+                            const diff = st.difficulty_level ?? 1;
+
+                            return (
+                              <div
+                                key={st.id}
+                                className="flex items-center gap-4 px-5 py-3.5 hover:bg-[#252320] transition-colors"
+                              >
+                                {/* Mastery dot */}
+                                <div
+                                  className="w-2.5 h-2.5 rounded-full flex-none"
+                                  style={{ backgroundColor: getMasteryColor(state) }}
+                                />
+
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-sm text-[#F5F0E8] font-medium truncate">
+                                    {st.name}
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                    <Clock size={10} className="text-[#4B5563]" />
+                                    <span className="text-xs text-[#6B6860]">
+                                      {st.estimated_minutes} min
+                                    </span>
+                                    {/* Difficulty badge */}
+                                    <span
+                                      className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                                      style={{
+                                        color: DIFFICULTY_COLORS[diff],
+                                        backgroundColor: `${DIFFICULTY_COLORS[diff]}18`,
+                                      }}
+                                    >
+                                      {DIFFICULTY_LABELS[diff]}
+                                    </span>
+                                    {stateInfo && (
+                                      <span
+                                        className="text-xs font-medium px-1.5 py-0.5 rounded"
+                                        style={{
+                                          color: stateInfo.color,
+                                          backgroundColor: stateInfo.bgColor,
+                                        }}
+                                      >
+                                        {stateInfo.label}
+                                      </span>
+                                    )}
+                                    {isDue && (
+                                      <span className="text-xs font-semibold text-[#F59E0B] bg-[#F59E0B]/15 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                        <RotateCcw size={9} />
+                                        Review due
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <Link
+                                  href={`/dashboard/study/${st.id}`}
+                                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex-none"
                                   style={{
-                                    color: stateInfo.color,
-                                    backgroundColor: stateInfo.bgColor,
+                                    backgroundColor: isDue
+                                      ? "#F59E0B"
+                                      : `${subject.color}20`,
+                                    color: isDue ? "black" : subject.color,
                                   }}
                                 >
-                                  {stateInfo.label}
-                                </span>
-                              )}
-                              {isDue && (
-                                <span className="text-xs font-semibold text-[#F59E0B] bg-[#F59E0B]/15 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                  <RotateCcw size={9} />
-                                  Review due
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <Link
-                            href={`/dashboard/study/${st.id}`}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 flex-none"
-                            style={{
-                              backgroundColor: isDue
-                                ? "#F59E0B"
-                                : `${subject.color}20`,
-                              color: isDue ? "black" : subject.color,
-                            }}
-                          >
-                            {isDue ? (
-                              <>
-                                <RotateCcw size={11} /> Review
-                              </>
-                            ) : (
-                              <>
-                                <Zap size={11} /> Start
-                              </>
-                            )}
-                            <ChevronRight size={11} />
-                          </Link>
+                                  {isDue ? (
+                                    <>
+                                      <RotateCcw size={11} /> Review
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Zap size={11} /> Start
+                                    </>
+                                  )}
+                                  <ChevronRight size={11} />
+                                </Link>
+                              </div>
+                            );
+                          })}
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
     </div>

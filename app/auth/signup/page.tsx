@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Check } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { generateReferralCode } from "@/lib/utils";
+import { deleteOrphanedAuthUser } from "./actions";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -180,8 +181,30 @@ export default function SignupPage() {
       });
 
       if (insertResult.error) {
-        // Surface the real Supabase error — no wrapping
-        setError(insertResult.error.message);
+        console.error("[Signup] CALL 2 failed — students insert error:", {
+          message: insertResult.error.message,
+          code:    insertResult.error.code,
+          details: insertResult.error.details,
+          hint:    insertResult.error.hint,
+        });
+
+        // Attempt to delete the orphaned auth user so the student can
+        // retry signup with the same email without hitting "already registered".
+        console.log("[Signup] attempting cleanup of orphaned auth user:", userId);
+        const cleanup = await deleteOrphanedAuthUser();
+        if ("success" in cleanup) {
+          console.log("[Signup] cleanup succeeded — auth user deleted");
+          setError(
+            `Account setup failed: ${insertResult.error.message}. ` +
+            `Your account has been removed — please try signing up again.`
+          );
+        } else {
+          console.warn("[Signup] cleanup failed:", cleanup.error);
+          setError(
+            `Account setup failed: ${insertResult.error.message}. ` +
+            `Please contact support — your email may be locked until we fix it.`
+          );
+        }
         return;
       }
 
