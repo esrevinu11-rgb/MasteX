@@ -10,6 +10,12 @@ export interface QuestionAttemptData {
   xp_awarded: number;
   time_seconds: number;
   attempt_number: number;
+  ai_score?: number | null;
+  ai_feedback?: string | null;
+  rubric_relevance?: number | null;
+  rubric_accuracy?: number | null;
+  rubric_depth?: number | null;
+  rubric_clarity?: number | null;
 }
 
 export interface SaveSessionPayload {
@@ -151,6 +157,12 @@ export async function saveStudySession(payload: SaveSessionPayload) {
         used_hint: false,
         time_seconds: qa.time_seconds,
         attempt_number: qa.attempt_number,
+        ai_score: qa.ai_score ?? null,
+        ai_feedback: qa.ai_feedback ?? null,
+        rubric_relevance: qa.rubric_relevance ?? null,
+        rubric_accuracy: qa.rubric_accuracy ?? null,
+        rubric_depth: qa.rubric_depth ?? null,
+        rubric_clarity: qa.rubric_clarity ?? null,
       }))
     );
 

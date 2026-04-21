@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { SUBJECTS, type MasteryState } from "@/types";
+import { SUBJECTS } from "@/types";
 import {
   saveStudySession,
   type SaveSessionPayload,
@@ -74,7 +74,27 @@ interface QuestionResult {
   answer: string;
   is_correct: boolean;
   xp_awarded: number;
-  self_assessment?: "correct" | "partial" | "wrong";
+  time_seconds?: number;
+  ai_score?: number;
+  ai_feedback?: string;
+  rubric_relevance?: number;
+  rubric_accuracy?: number;
+  rubric_depth?: number;
+  rubric_clarity?: number;
+}
+
+interface AiGradeData {
+  score: number;
+  xp_awarded: number;
+  feedback: string;
+  rubric: {
+    relevance: number;
+    accuracy: number;
+    depth: number;
+    clarity: number;
+  };
+  flagged?: boolean;
+  flag_reason?: string;
 }
 
 const FRAME_LABELS: Record<string, string> = {
@@ -224,7 +244,8 @@ export default function StudySessionPage() {
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [textAnswer, setTextAnswer] = useState("");
   const [checkedAnswer, setCheckedAnswer] = useState(false);
-  const [selfAssessmentQ, setSelfAssessmentQ] = useState<"correct" | "partial" | "wrong" | null>(null);
+  const [gradingQ, setGradingQ] = useState(false);
+  const [aiGradeResult, setAiGradeResult] = useState<AiGradeData | null>(null);
   const [questionResults, setQuestionResults] = useState<QuestionResult[]>([]);
 
   // Review state
@@ -237,6 +258,7 @@ export default function StudySessionPage() {
   } | null>(null);
 
   const startedAtRef = useRef<number>(Date.now());
+  const questionStartTimeRef = useRef<number>(Date.now());
 
   // ── Load everything on mount ───────────────────────────────────────────────
 
@@ -368,38 +390,104 @@ export default function StudySessionPage() {
   const currentQ = questions[currentQIndex];
   const isLastQ = currentQIndex >= questions.length - 1;
 
+  // MCQ XP already earned this session (capped at 100 total)
+  const sessionMcqXp = questionResults
+    .filter((r, i) => r && questions[i]?.type === "mcq")
+    .reduce((s, r) => s + (r?.xp_awarded ?? 0), 0);
+
   function checkAnswer() {
     if (!currentQ) return;
     const answer =
-      currentQ.type === "mcq"
-        ? selectedOption ?? ""
-        : textAnswer.trim();
+      currentQ.type === "mcq" ? selectedOption ?? "" : textAnswer.trim();
     if (!answer) return;
 
-    if (currentQ.type === "short_answer" || currentQ.type === "theory") {
-      // Reveal mark scheme and ask self-assessment
-      setCheckedAnswer(true);
+    const timeSecs = Math.round((Date.now() - questionStartTimeRef.current) / 1000);
+
+    if (currentQ.type !== "mcq") {
+      // Kick off AI grading
+      gradeWithAI(answer, timeSecs);
       return;
     }
 
-    // MCQ — auto grade
+    // MCQ — auto grade with anti-cheat time check and daily session cap
     const correct = currentQ.correct_answer
       ? answer.trim().toLowerCase() === currentQ.correct_answer.trim().toLowerCase()
       : false;
-    const xp = correct ? currentQ.xp_reward : 0;
-    commitResult({ answer, is_correct: correct, xp_awarded: xp });
+    const rawXp = correct ? currentQ.xp_reward : 0;
+    // Time < 3s → 0 XP; also cap total MCQ XP this session at 100
+    const xp =
+      timeSecs < 3 ? 0 : correct ? Math.max(0, Math.min(rawXp, 100 - sessionMcqXp)) : 0;
+    commitResult({ answer, is_correct: correct, xp_awarded: xp, time_seconds: timeSecs });
+  }
+
+  async function gradeWithAI(answer: string, timeSecs: number) {
+    if (!currentQ) return;
+    setCheckedAnswer(true);
+    setGradingQ(true);
+
+    try {
+      const res = await fetch("/api/questions/grade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question_id: currentQ.id,
+          answer,
+          time_seconds: timeSecs,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Grading failed");
+      const grade = (await res.json()) as AiGradeData;
+      setAiGradeResult(grade);
+      commitResult({
+        answer,
+        is_correct: grade.score >= 50,
+        xp_awarded: grade.xp_awarded,
+        time_seconds: timeSecs,
+        ai_score: grade.score,
+        ai_feedback: grade.feedback,
+        rubric_relevance: grade.rubric.relevance,
+        rubric_accuracy: grade.rubric.accuracy,
+        rubric_depth: grade.rubric.depth,
+        rubric_clarity: grade.rubric.clarity,
+      });
+    } catch {
+      // Fallback: award 0 XP and show a generic message
+      setAiGradeResult({
+        score: 0,
+        xp_awarded: 0,
+        feedback: "Grading service unavailable — no XP awarded for this question.",
+        rubric: { relevance: 0, accuracy: 0, depth: 0, clarity: 0 },
+        flagged: false,
+      });
+      commitResult({ answer, is_correct: false, xp_awarded: 0, time_seconds: timeSecs });
+    } finally {
+      setGradingQ(false);
+    }
   }
 
   function commitResult({
     answer,
     is_correct,
     xp_awarded,
-    self_assessment,
+    time_seconds,
+    ai_score,
+    ai_feedback,
+    rubric_relevance,
+    rubric_accuracy,
+    rubric_depth,
+    rubric_clarity,
   }: {
     answer: string;
     is_correct: boolean;
     xp_awarded: number;
-    self_assessment?: "correct" | "partial" | "wrong";
+    time_seconds?: number;
+    ai_score?: number;
+    ai_feedback?: string;
+    rubric_relevance?: number;
+    rubric_accuracy?: number;
+    rubric_depth?: number;
+    rubric_clarity?: number;
   }) {
     if (!currentQ) return;
     const result: QuestionResult = {
@@ -407,7 +495,13 @@ export default function StudySessionPage() {
       answer,
       is_correct,
       xp_awarded,
-      self_assessment,
+      time_seconds,
+      ai_score,
+      ai_feedback,
+      rubric_relevance,
+      rubric_accuracy,
+      rubric_depth,
+      rubric_clarity,
     };
     setQuestionResults((prev) => {
       const updated = [...prev];
@@ -415,24 +509,6 @@ export default function StudySessionPage() {
       return updated;
     });
     setCheckedAnswer(true);
-    setSelfAssessmentQ(self_assessment ?? null);
-  }
-
-  function handleShortAnswerSelfAssess(assessment: "correct" | "partial" | "wrong") {
-    const answer = textAnswer.trim();
-    const xp =
-      assessment === "correct"
-        ? currentQ?.xp_reward ?? 0
-        : assessment === "partial"
-        ? Math.round((currentQ?.xp_reward ?? 0) * 0.6)
-        : 0;
-    setSelfAssessmentQ(assessment);
-    commitResult({
-      answer,
-      is_correct: assessment === "correct",
-      xp_awarded: xp,
-      self_assessment: assessment,
-    });
   }
 
   function nextQuestion() {
@@ -443,7 +519,9 @@ export default function StudySessionPage() {
       setSelectedOption(null);
       setTextAnswer("");
       setCheckedAnswer(false);
-      setSelfAssessmentQ(null);
+      setGradingQ(false);
+      setAiGradeResult(null);
+      questionStartTimeRef.current = Date.now();
     }
   }
 
@@ -465,8 +543,14 @@ export default function StudySessionPage() {
         answer: r.answer,
         is_correct: r.is_correct,
         xp_awarded: r.xp_awarded,
-        time_seconds: 0,
+        time_seconds: r.time_seconds ?? 0,
         attempt_number: i + 1,
+        ai_score: r.ai_score ?? null,
+        ai_feedback: r.ai_feedback ?? null,
+        rubric_relevance: r.rubric_relevance ?? null,
+        rubric_accuracy: r.rubric_accuracy ?? null,
+        rubric_depth: r.rubric_depth ?? null,
+        rubric_clarity: r.rubric_clarity ?? null,
       }));
 
     const payload: SaveSessionPayload = {
@@ -842,7 +926,10 @@ export default function StudySessionPage() {
         {selfAssessmentPractice && (
           <button
             type="button"
-            onClick={() => setPhase("questions")}
+            onClick={() => {
+              questionStartTimeRef.current = Date.now();
+              setPhase("questions");
+            }}
             className="w-full flex items-center justify-center gap-2 bg-[#F59E0B] hover:bg-[#D97706] text-black font-bold py-4 rounded-2xl transition-all"
           >
             Start the questions <ChevronRight size={18} />
@@ -965,79 +1052,124 @@ export default function StudySessionPage() {
 
         {/* Feedback after check */}
         {isChecked && (
-          <div
-            className={cn(
-              "rounded-2xl p-5 border-2 space-y-3 animate-fade-in",
-              isCorrect
-                ? "bg-[#34D399]/10 border-[#34D399]/40"
-                : "bg-[#F87171]/10 border-[#F87171]/30"
-            )}
-          >
+          <div className="space-y-3 animate-fade-in">
+            {/* MCQ result */}
             {currentQ?.type === "mcq" && (
-              <div className="flex items-center gap-2">
-                {isCorrect ? (
-                  <Check size={18} className="text-[#34D399]" />
-                ) : (
-                  <X size={18} className="text-[#F87171]" />
+              <div
+                className={cn(
+                  "rounded-2xl p-5 border-2 space-y-3",
+                  isCorrect
+                    ? "bg-[#34D399]/10 border-[#34D399]/40"
+                    : "bg-[#F87171]/10 border-[#F87171]/30"
                 )}
-                <span
-                  className={cn(
-                    "font-bold",
-                    isCorrect ? "text-[#34D399]" : "text-[#F87171]"
+              >
+                <div className="flex items-center gap-2">
+                  {isCorrect ? (
+                    <Check size={18} className="text-[#34D399]" />
+                  ) : (
+                    <X size={18} className="text-[#F87171]" />
                   )}
-                >
-                  {isCorrect ? "Correct!" : "Not quite"}
-                </span>
-              </div>
-            )}
-
-            {/* Short answer / theory: show mark scheme + self assess */}
-            {(currentQ?.type === "short_answer" || currentQ?.type === "theory") && !selfAssessmentQ && (
-              <>
-                <div className="text-xs font-bold text-[#6B6860] uppercase tracking-wider">
-                  Mark Scheme
+                  <span
+                    className={cn(
+                      "font-bold",
+                      isCorrect ? "text-[#34D399]" : "text-[#F87171]"
+                    )}
+                  >
+                    {isCorrect ? "Correct!" : "Not quite"}
+                  </span>
                 </div>
+                {!isCorrect && currentQ?.correct_answer && (
+                  <div className="text-sm">
+                    <span className="text-xs text-[#6B6860]">Correct answer: </span>
+                    <span className="font-medium text-[#34D399]">{currentQ.correct_answer}</span>
+                  </div>
+                )}
                 <p className="text-sm text-[#D1D5DB] leading-relaxed">
-                  {currentQ.mark_scheme}
+                  {currentQ?.explanation}
                 </p>
-                <div className="text-xs font-semibold text-[#F5F0E8] mt-3 mb-2">
-                  How did you do?
-                </div>
-                <div className="flex gap-2">
-                  {(
-                    [
-                      { id: "correct" as const, label: "Got it ✓", color: "#34D399" },
-                      { id: "partial" as const, label: "Partly right", color: "#F59E0B" },
-                      { id: "wrong" as const, label: "Not quite", color: "#F87171" },
-                    ] as const
-                  ).map(({ id, label, color }) => (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => handleShortAnswerSelfAssess(id)}
-                      className="flex-1 py-2 rounded-xl text-xs font-bold border border-[#2E2C28] hover:border-[#3E3C38] transition-colors"
-                      style={{ color }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {/* Correct answer for MCQ */}
-            {currentQ?.type === "mcq" && !isCorrect && currentQ?.correct_answer && (
-              <div className="text-sm">
-                <span className="text-xs text-[#6B6860]">Correct answer: </span>
-                <span className="font-medium text-[#34D399]">{currentQ.correct_answer}</span>
               </div>
             )}
 
-            {/* Explanation */}
-            {(currentQ?.type === "mcq" || selfAssessmentQ) && (
-              <p className="text-sm text-[#D1D5DB] leading-relaxed">
-                {currentQ?.explanation}
-              </p>
+            {/* Non-MCQ: AI grading */}
+            {(currentQ?.type === "short_answer" || currentQ?.type === "theory") && (
+              <div className="rounded-2xl border border-[#2E2C28] bg-[#1A1916] overflow-hidden">
+                {gradingQ ? (
+                  <div className="flex items-center gap-3 p-5 text-sm text-[#9CA3AF]">
+                    <div className="w-4 h-4 border-2 border-[#F59E0B] border-t-transparent rounded-full animate-spin flex-none" />
+                    Grading your answer…
+                  </div>
+                ) : aiGradeResult ? (
+                  <div className="p-5 space-y-4">
+                    {/* Score header */}
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-[#6B6860] uppercase tracking-wider">
+                        AI Grade
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "text-lg font-black",
+                            aiGradeResult.score >= 70
+                              ? "text-[#34D399]"
+                              : aiGradeResult.score >= 50
+                              ? "text-[#F59E0B]"
+                              : "text-[#F87171]"
+                          )}
+                        >
+                          {aiGradeResult.score}/100
+                        </span>
+                        <span className="text-xs font-bold text-[#F59E0B]">
+                          +{aiGradeResult.xp_awarded} XP
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Rubric bars */}
+                    <div className="space-y-2">
+                      {(
+                        [
+                          { key: "relevance", label: "Relevance" },
+                          { key: "accuracy",  label: "Accuracy" },
+                          { key: "depth",     label: "Depth" },
+                          { key: "clarity",   label: "Clarity" },
+                        ] as const
+                      ).map(({ key, label }) => {
+                        const val = aiGradeResult.rubric[key];
+                        const pct = Math.round((val / 25) * 100);
+                        return (
+                          <div key={key} className="flex items-center gap-3">
+                            <span className="text-xs text-[#6B6860] w-16 flex-none">{label}</span>
+                            <div className="flex-1 h-1.5 bg-[#2E2C28] rounded-full overflow-hidden">
+                              <div
+                                className="h-full rounded-full bg-[#F59E0B] transition-all duration-500"
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className="text-xs text-[#9CA3AF] w-8 text-right flex-none">
+                              {val}/25
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Feedback */}
+                    <p className="text-sm text-[#D1D5DB] leading-relaxed border-t border-[#2E2C28] pt-3">
+                      {aiGradeResult.feedback}
+                    </p>
+
+                    {/* Mark scheme (collapsed toggle) */}
+                    <details className="group">
+                      <summary className="text-xs text-[#6B6860] hover:text-[#9CA3AF] cursor-pointer select-none transition-colors">
+                        View mark scheme
+                      </summary>
+                      <p className="text-sm text-[#9CA3AF] leading-relaxed mt-2">
+                        {currentQ?.mark_scheme}
+                      </p>
+                    </details>
+                  </div>
+                ) : null}
+              </div>
             )}
           </div>
         )}
@@ -1055,7 +1187,7 @@ export default function StudySessionPage() {
             Check answer <ChevronRight size={18} />
           </button>
         ) : (
-          (currentQ?.type === "mcq" || selfAssessmentQ) && (
+          isChecked && !gradingQ && (
             <button
               type="button"
               onClick={nextQuestion}
@@ -1207,9 +1339,20 @@ export default function StudySessionPage() {
                       {r.question.explanation}
                     </div>
                   )}
-                  {(r.question.type === "short_answer" || r.question.type === "theory") && r.self_assessment && (
+                  {(r.question.type === "short_answer" || r.question.type === "theory") && r.ai_score !== undefined && (
                     <div className="text-xs text-[#6B6860] mt-1">
-                      Self-assessed: <span className="capitalize">{r.self_assessment}</span>
+                      AI score:{" "}
+                      <span
+                        className={
+                          r.ai_score >= 70
+                            ? "text-[#34D399]"
+                            : r.ai_score >= 50
+                            ? "text-[#F59E0B]"
+                            : "text-[#F87171]"
+                        }
+                      >
+                        {r.ai_score}/100
+                      </span>
                     </div>
                   )}
                 </div>
