@@ -52,6 +52,8 @@ export interface Student {
   learning_pace: "slow" | "medium" | "fast";
   onboarding_completed: boolean;
   focus_subject: string | null;
+  programme_id: string | null;
+  subscription_tier: "core" | "programme" | "full" | null;
   created_at: string;
 }
 

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { SUBJECTS } from "@/types";
+import { PROGRAMMES } from "@/lib/programmes";
 import { saveOnboarding, type OnboardingPayload } from "./actions";
 import {
   Brain,
@@ -47,7 +48,7 @@ const GOAL_LEVEL_INFO = {
 } as const;
 
 const MAIN_GOALS = [
-  { id: "pass_waec", emoji: "🎓", label: "Pass WAEC with good grades", desc: "Aim for at least C6 in every subject" },
+  { id: "pass_waec", emoji: "🎓", label: "Pass WASSCE with good grades", desc: "Aim for at least C6 in every subject" },
   { id: "excellent_grades", emoji: "⭐", label: "Get excellent grades (A's and B's)", desc: "Top performance in all subjects" },
   { id: "improve_specific", emoji: "🎯", label: "Improve in specific subjects I'm weak in", desc: "Targeted help where you need it most" },
 ] as const;
@@ -68,7 +69,7 @@ const CONFIDENCE_OPTIONS = [
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type StepId = 1 | 2 | 3 | 4 | 5;
+type StepId = 1 | 2 | 3 | 4 | 5 | 6;
 type PhaseId = StepId | "analysing" | "results";
 
 interface DiagQuestion {
@@ -87,6 +88,7 @@ interface SavedState {
   mainGoal: "pass_waec" | "excellent_grades" | "improve_specific" | null;
   studyDaysPerWeek: number | null;
   dailyGoalLevel: "light" | "standard" | "intense";
+  programmeId: string | null;
 }
 
 interface ResultData {
@@ -104,6 +106,7 @@ const DEFAULT_STATE: SavedState = {
   mainGoal: null,
   studyDaysPerWeek: null,
   dailyGoalLevel: "standard",
+  programmeId: null,
 };
 
 // ─── Root Component ───────────────────────────────────────────────────────────
@@ -173,7 +176,7 @@ export default function OnboardingPage() {
 
   const goTo = (next: PhaseId) => {
     setSaveError(null);
-    if (next === 4) fetchDiagnostic();
+    if (next === 5) fetchDiagnostic();
     setPhase(next);
   };
 
@@ -203,7 +206,7 @@ export default function OnboardingPage() {
       }
       setDiagScores(scores);
       goTo("analysing");
-      setTimeout(() => goTo(5), 2500);
+      setTimeout(() => goTo(6), 2500);
     }
   };
 
@@ -227,6 +230,7 @@ export default function OnboardingPage() {
       mainGoal: saved.mainGoal,
       studyDaysPerWeek: saved.studyDaysPerWeek,
       dailyGoalLevel: saved.dailyGoalLevel,
+      programmeId: saved.programmeId,
     };
 
     const result = await saveOnboarding(payload);
@@ -273,7 +277,7 @@ export default function OnboardingPage() {
       {/* Step indicator */}
       <div className="fixed top-0 left-0 right-0 z-50 bg-[#0F0E0C]/90 backdrop-blur-sm border-b border-[#1A1916]">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-2">
-          {[1, 2, 3, 4, 5].map((n) => (
+          {[1, 2, 3, 4, 5, 6].map((n) => (
             <div key={n} className="flex items-center gap-2 flex-1">
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
@@ -286,7 +290,7 @@ export default function OnboardingPage() {
               >
                 {n < stepPhase ? <Check size={12} /> : n}
               </div>
-              {n < 5 && (
+              {n < 6 && (
                 <div
                   className={`flex-1 h-0.5 rounded-full transition-all ${
                     n < stepPhase ? "bg-[#F59E0B]" : "bg-[#2E2C28]"
@@ -305,26 +309,34 @@ export default function OnboardingPage() {
             <StepWelcome name={studentName} onNext={() => goTo(2)} />
           )}
           {stepPhase === 2 && (
-            <StepConfidence
-              confidence={saved.confidence}
-              onChange={(subj, val) =>
-                updateSaved({ confidence: { ...saved.confidence, [subj]: val } })
-              }
+            <StepProgramme
+              selected={saved.programmeId}
+              onSelect={(id) => updateSaved({ programmeId: id })}
               onNext={() => goTo(3)}
               onBack={() => goTo(1)}
             />
           )}
           {stepPhase === 3 && (
-            <StepLearningStyle
-              prefersExamples={saved.prefersExamplesFirst}
-              focusDuration={saved.focusDurationMinutes}
-              studyTime={saved.preferredStudyTime}
-              onChange={updateSaved}
+            <StepConfidence
+              confidence={saved.confidence}
+              onChange={(subj, val) =>
+                updateSaved({ confidence: { ...saved.confidence, [subj]: val } })
+              }
               onNext={() => goTo(4)}
               onBack={() => goTo(2)}
             />
           )}
           {stepPhase === 4 && (
+            <StepLearningStyle
+              prefersExamples={saved.prefersExamplesFirst}
+              focusDuration={saved.focusDurationMinutes}
+              studyTime={saved.preferredStudyTime}
+              onChange={updateSaved}
+              onNext={() => goTo(5)}
+              onBack={() => goTo(3)}
+            />
+          )}
+          {stepPhase === 5 && (
             <StepDiagnostic
               questions={diagQuestions}
               currentIndex={currentDiagIndex}
@@ -333,11 +345,11 @@ export default function OnboardingPage() {
               onBack={() => {
                 setCurrentDiagIndex(0);
                 setDiagAnswers({});
-                goTo(3);
+                goTo(4);
               }}
             />
           )}
-          {stepPhase === 5 && (
+          {stepPhase === 6 && (
             <StepGoals
               mainGoal={saved.mainGoal}
               studyDays={saved.studyDaysPerWeek}
@@ -345,7 +357,7 @@ export default function OnboardingPage() {
               onChange={updateSaved}
               onBack={() => {
                 setCurrentDiagIndex(0);
-                goTo(4);
+                goTo(5);
               }}
               onSubmit={handleSubmit}
               saving={saving}
@@ -430,7 +442,102 @@ function StepWelcome({ name, onNext }: { name: string; onNext: () => void }) {
   );
 }
 
-// ─── Step 2: Subject Confidence ───────────────────────────────────────────────
+// ─── Step 2: Programme Selection ─────────────────────────────────────────────
+
+function StepProgramme({
+  selected,
+  onSelect,
+  onNext,
+  onBack,
+}: {
+  selected: string | null;
+  onSelect: (id: string) => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  const selectedProg = PROGRAMMES.find((p) => p.id === selected);
+
+  return (
+    <div className="animate-fade-in space-y-6">
+      <div>
+        <h2 className="text-2xl font-black text-[#F5F0E8]">
+          What&apos;s your SHS programme?
+        </h2>
+        <p className="text-[#9CA3AF] mt-2 text-sm leading-relaxed">
+          This helps us tailor your study plan and unlock elective subjects as
+          they become available.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        {PROGRAMMES.map((prog) => (
+          <button
+            key={prog.id}
+            onClick={() => onSelect(prog.id)}
+            className={`relative text-left p-4 rounded-2xl border transition-all ${
+              selected === prog.id
+                ? "border-[#A78BFA] bg-[#A78BFA]/10"
+                : "border-[#2E2C28] bg-[#1A1916] hover:border-[#3E3C38]"
+            }`}
+          >
+            {!prog.isAvailable && (
+              <span className="absolute top-2 right-2 text-[8px] font-bold bg-[#2E2C28] text-[#6B6860] px-1.5 py-0.5 rounded-full">
+                SOON
+              </span>
+            )}
+            <div className="text-2xl mb-2">{prog.emoji}</div>
+            <div className="text-xs font-semibold text-[#F5F0E8] leading-tight">
+              {prog.name}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {selected && selectedProg && (
+        <div
+          className={`rounded-xl px-4 py-3 text-xs border ${
+            selectedProg.isAvailable
+              ? "bg-[#A78BFA]/10 border-[#A78BFA]/20 text-[#A78BFA]"
+              : "bg-[#F59E0B]/10 border-[#F59E0B]/20 text-[#F59E0B]"
+          }`}
+        >
+          {selectedProg.isAvailable ? (
+            <>
+              <span className="font-bold">{selectedProg.name}</span> —{" "}
+              {selectedProg.description}
+            </>
+          ) : (
+            <>
+              Elective subjects for{" "}
+              <span className="font-bold">{selectedProg.name}</span> are coming
+              soon. You can still select it — your core subjects are fully ready
+              now.
+            </>
+          )}
+        </div>
+      )}
+
+      <div className="flex gap-3 pt-2">
+        <button
+          onClick={onBack}
+          className="flex-none px-5 py-4 rounded-2xl border border-[#2E2C28] text-[#9CA3AF] hover:border-[#3E3C38] transition-colors flex items-center gap-1"
+        >
+          <ChevronLeft size={16} />
+          Back
+        </button>
+        <button
+          onClick={onNext}
+          disabled={!selected}
+          className="flex-1 bg-[#F59E0B] hover:bg-[#D97706] disabled:opacity-40 disabled:cursor-not-allowed text-black font-bold py-4 rounded-2xl transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+        >
+          Continue <ChevronRight size={18} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 3: Subject Confidence ───────────────────────────────────────────────
 
 function StepConfidence({
   confidence,

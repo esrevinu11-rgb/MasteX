@@ -4,7 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { RankBadge } from "@/components/ui/rank-badge";
 import { XPBar } from "@/components/ui/xp-bar";
 import { GoalRing } from "@/components/ui/goal-ring";
+import { ProgrammeSelectBanner } from "@/components/dashboard/ProgrammeSelectBanner";
 import { SUBJECTS, type Student } from "@/types";
+import { PROGRAMMES } from "@/lib/programmes";
 import {
   Flame,
   Star,
@@ -13,6 +15,7 @@ import {
   ArrowRight,
   Calendar,
   Target,
+  Lock,
 } from "lucide-react";
 
 export default async function DashboardHome() {
@@ -267,6 +270,9 @@ export default async function DashboardHome() {
         </Link>
       )}
 
+      {/* ── Programme selection banner ───────────────────────────────────────── */}
+      {!s.programme_id && <ProgrammeSelectBanner />}
+
       {/* ── Inactive subscription banner ─────────────────────────────────────── */}
       {s.subscription_status === "inactive" && (
         <div className="bg-[#F59E0B]/10 border border-[#F59E0B]/30 rounded-2xl p-4 flex items-start gap-3">
@@ -365,6 +371,44 @@ export default async function DashboardHome() {
           })}
         </div>
       </div>
+
+      {/* ── Elective subjects ────────────────────────────────────────────────── */}
+      {(() => {
+        const prog = s.programme_id
+          ? PROGRAMMES.find((p) => p.id === s.programme_id)
+          : null;
+        if (!prog) return null;
+        return (
+          <div>
+            <h2 className="text-xs font-semibold text-[#6B6860] uppercase tracking-widest mb-4">
+              Your Electives — {prog.name}
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {prog.electives.map((el) => (
+                <div
+                  key={el.code}
+                  className="bg-[#1A1916] border border-[#2E2C28] rounded-2xl p-5 flex items-center gap-4 opacity-60"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-[#2E2C28] flex items-center justify-center flex-none">
+                    <Lock size={16} className="text-[#4B5563]" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-[#F5F0E8] truncate">
+                      {el.name}
+                    </div>
+                    <div className="text-xs text-[#4B5563] mt-0.5">
+                      Questions &amp; mastery tracking coming soon
+                    </div>
+                  </div>
+                  <span className="text-[9px] font-bold bg-[#2E2C28] text-[#6B6860] px-2 py-1 rounded-full flex-none">
+                    SOON
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Recent activity ──────────────────────────────────────────────────── */}
       {recentSessions && recentSessions.length > 0 && (

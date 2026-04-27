@@ -26,7 +26,7 @@ export function Hero() {
         {/* Subheading */}
         <p className="text-lg sm:text-xl text-[#9CA3AF] max-w-2xl mx-auto leading-relaxed">
           MasteX uses spaced repetition, 6 question frames, and weekly AI-graded
-          quests to take you from F rank to S rank — and ace your WAEC exams.
+          quests to take you from F rank to S rank — and ace your WASSCE.
         </p>
 
         {/* CTA Buttons */}

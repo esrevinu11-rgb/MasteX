@@ -23,6 +23,7 @@ export interface OnboardingPayload {
   mainGoal: "pass_waec" | "excellent_grades" | "improve_specific";
   studyDaysPerWeek: number;
   dailyGoalLevel: "light" | "standard" | "intense";
+  programmeId: string | null;
 }
 
 const GOAL_XP: Record<string, number> = {
@@ -177,6 +178,7 @@ export async function saveOnboarding(payload: OnboardingPayload) {
         focus_subject:        focusSubject,
         daily_goal_xp:        goalXp,
         learning_pace:        "medium",
+        programme_id:         payload.programmeId ?? null,
       })
       .eq("id", user.id);
 

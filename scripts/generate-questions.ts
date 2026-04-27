@@ -54,8 +54,44 @@ interface SubTopic {
   name: string;
   description: string | null;
   subject_id: string;
+  subject_area: string | null;
   topics: { name: string; strand_name: string | null } | null;
 }
+
+// ─── Subject-area → allowed frames ───────────────────────────────────────────
+// Determines which frames are valid for each sub-topic.
+// When a sub-topic has a subject_area tag, only these frames are generated.
+// If subject_area is null (untagged), all frames for the subject are used.
+
+const SUBJECT_AREA_FRAMES: Record<string, string[]> = {
+  // Core Mathematics
+  number_algebra:    ["mcq_objective", "short_answer_theory", "multi_step_theory", "story_problem", "data_interpretation", "proof_justify"],
+  geometry_trig:     ["mcq_objective", "short_answer_theory", "multi_step_theory", "proof_justify", "data_interpretation"],
+  stats_probability: ["mcq_objective", "short_answer_theory", "multi_step_theory", "data_interpretation", "story_problem"],
+
+  // English Language
+  oral_english_topic:  ["mcq_objective", "oral_english"],
+  comprehension_topic: ["mcq_objective", "comprehension_factual", "comprehension_inferential"],
+  grammar_topic:       ["mcq_objective", "comprehension_factual"],
+  writing_topic:       ["mcq_objective", "essay_writing", "letter_writing"],
+  literature_topic:    ["mcq_objective", "essay_writing", "comprehension_inferential"],
+
+  // Social Studies
+  general_knowledge:  ["mcq_objective", "short_answer", "explain_suggest", "discuss_analyse"],
+  history_geography:  ["mcq_objective", "short_answer", "diagram_based", "explain_suggest"],
+  governance_rights:  ["mcq_objective", "short_answer", "explain_suggest", "discuss_analyse", "evaluate_assess"],
+  financial_economic: ["mcq_objective", "short_answer", "explain_suggest", "evaluate_assess"],
+  ethics_values:      ["mcq_objective", "short_answer", "discuss_analyse", "evaluate_assess"],
+
+  // Integrated Science
+  physics_calculation:    ["mcq_objective", "short_structured", "calculation", "practical_data"],
+  chemistry_calculation:  ["mcq_objective", "short_structured", "calculation", "practical_data"],
+  biology_concept:        ["mcq_objective", "short_structured", "activity_of_integration", "evaluate_discuss"],
+  health_lifestyle:       ["mcq_objective", "short_structured", "activity_of_integration", "evaluate_discuss"],
+  environmental:          ["mcq_objective", "short_structured", "activity_of_integration", "evaluate_discuss"],
+  scientific_method:      ["mcq_objective", "short_structured", "practical_data", "activity_of_integration"],
+  electronics:            ["mcq_objective", "short_structured", "calculation", "diagram_based"],
+};
 
 interface GeneratedQuestion {
   stem: string;
@@ -104,6 +140,7 @@ const SCIENCE_FRAMES: Record<string, FrameConfig> = {
   activity_of_integration:  { paper: "paper2", level: 3, type: "theory",       xp: 12, shows_working: false, partial_marks: true,  ghanaian_context: true  },
   practical_data:           { paper: "paper3", level: 2, type: "theory",       xp: 8,  shows_working: false, partial_marks: true,  ghanaian_context: false },
   evaluate_discuss:         { paper: "paper2", level: 3, type: "theory",       xp: 12, shows_working: false, partial_marks: true,  ghanaian_context: true  },
+  diagram_based:            { paper: "paper2", level: 2, type: "theory",       xp: 8,  shows_working: false, partial_marks: true,  ghanaian_context: false },
 };
 
 const SOCIAL_FRAMES: Record<string, FrameConfig> = {
@@ -131,6 +168,7 @@ const SUBJECT_NAMES: Record<string, string> = {
 
 const SUBJECT_IDS = ["core_math", "english", "social_studies", "integrated_science"];
 const DELAY_MS = 3_000;
+const QUESTIONS_PER_FRAME = 3; // target number of distinct questions per (sub_topic, frame)
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -445,6 +483,22 @@ function sciencePrompt(st: SubTopic, frame: string): string {
 - Requires critical analysis with scientific reasoning and real-world knowledge
 - Expected answer: 4–6 sentences minimum with scientific vocabulary
 - Mark scheme: award 2 marks per well-developed point, state total`,
+
+    diagram_based: `Generate a diagram-based Integrated Science question (used for electronics/circuits).
+- Choose ONE type relevant to this sub-topic:
+  TYPE A — Circuit diagram: describe a simple circuit and ask the student to:
+    (a) Identify the components labelled in the diagram
+    (b) State what would happen if one component were changed (e.g. resistor added)
+    (c) Calculate a value using Ohm's law or power formula
+  TYPE B — Label a diagram: describe a device or system (e.g. solar panel setup,
+    simple amplifier circuit) and ask the student to identify labelled parts and
+    state the function of each
+  TYPE C — Draw and explain: ask the student to draw a labelled diagram of a
+    specified circuit or electronic system and explain how it works
+- Include the full description of the diagram in the stem (since we cannot attach images)
+- Describe component positions clearly: "Component A is connected in series with B..."
+- Mark scheme: marks for correct labels, correct relationships, correct explanations
+- Use Ghanaian contexts where natural: solar charging circuits in villages, radio circuits`,
   };
 
   const fmt = cfg.type === "mcq" ? MCQ_FORMAT : cfg.type === "short_answer" ? SHORT_ANSWER_FORMAT : THEORY_FORMAT;
@@ -559,14 +613,26 @@ ${fmt}`;
 
 // ─── Route to subject prompt ──────────────────────────────────────────────────
 
-function buildPrompt(st: SubTopic, frame: string): string {
+function buildPrompt(st: SubTopic, frame: string, existingPrompts: string[]): string {
+  let base: string;
   switch (st.subject_id) {
-    case "core_math":          return mathPrompt(st, frame);
-    case "english":            return englishPrompt(st, frame);
-    case "social_studies":     return socialPrompt(st, frame);
-    case "integrated_science": return sciencePrompt(st, frame);
+    case "core_math":          base = mathPrompt(st, frame);          break;
+    case "english":            base = englishPrompt(st, frame);       break;
+    case "social_studies":     base = socialPrompt(st, frame);        break;
+    case "integrated_science": base = sciencePrompt(st, frame);       break;
     default: throw new Error(`Unknown subject_id: ${st.subject_id}`);
   }
+
+  if (existingPrompts.length > 0) {
+    base +=
+      `\n\nEXISTING QUESTIONS FOR THIS SUB-TOPIC + FRAME (do not repeat these):\n` +
+      existingPrompts.map((p, i) => `${i + 1}. ${p}`).join("\n") +
+      `\n\nGenerate a NEW question that is MEANINGFULLY DIFFERENT from those above.` +
+      ` Use a different scenario, different numbers, different context, or a different` +
+      ` angle on the concept. Do not repeat the same question.`;
+  }
+
+  return base;
 }
 
 // ─── Generation ───────────────────────────────────────────────────────────────
@@ -574,14 +640,15 @@ function buildPrompt(st: SubTopic, frame: string): string {
 async function generateQuestion(
   client: Anthropic,
   st: SubTopic,
-  frame: string
+  frame: string,
+  existingPrompts: string[],
 ): Promise<GeneratedQuestion> {
   const cfg = SUBJECT_FRAMES[st.subject_id][frame];
 
   const msg = await client.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 1800,
-    messages: [{ role: "user", content: buildPrompt(st, frame) }],
+    messages: [{ role: "user", content: buildPrompt(st, frame, existingPrompts) }],
   });
 
   const block = msg.content.find((b) => b.type === "text");
@@ -610,7 +677,7 @@ async function generateQuestion(
 
 async function main() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
   if (!supabaseUrl || !serviceKey || !anthropicKey) {
@@ -628,102 +695,231 @@ async function main() {
   });
   const anthropic = new Anthropic({ apiKey: anthropicKey });
 
-  console.log("Fetching sub-topics for all subjects…");
+  // ── Fetch sub-topics ──────────────────────────────────────────────────────
+
+  console.log("Fetching sub-topics…");
   const { data: subTopics, error } = await supabase
     .from("sub_topics")
-    .select("id, topic_id, name, description, subject_id, topics(name, strand_name)")
+    .select("id, topic_id, name, description, subject_id, subject_area, topics(name, strand_name)")
     .in("subject_id", SUBJECT_IDS)
-    .order("subject_id")
-    .order("topic_id")
-    .order("order_index");
+    .order("subject_id", { ascending: true })
+    .order("name",       { ascending: true });
 
   if (error || !subTopics?.length) {
     console.error("❌  Failed to fetch sub-topics:", error?.message ?? "empty result");
     process.exit(1);
   }
 
-  // Fetch existing questions to skip
-  const { data: existing } = await supabase
-    .from("questions")
-    .select("sub_topic_id, frame")
-    .in("sub_topic_id", subTopics.map((s) => s.id));
+  const castTopics = subTopics as unknown as SubTopic[];
 
-  const existingSet = new Set(
-    (existing ?? []).map((q) => `${q.sub_topic_id}::${q.frame}`)
-  );
+  // Group by subject (preserves SUBJECT_IDS ordering)
+  const subtopicsBySubject: Record<string, SubTopic[]> = {};
+  for (const subjectId of SUBJECT_IDS) {
+    subtopicsBySubject[subjectId] = castTopics.filter((s) => s.subject_id === subjectId);
+  }
 
-  const totalNeeded = subTopics.length * 6;
-  console.log(`Found ${subTopics.length} sub-topics × 6 frames = ${totalNeeded} questions needed.`);
-  if (existingSet.size > 0) console.log(`  ↷ Skipping ${existingSet.size} already generated.\n`);
+  // Warn about untagged sub-topics (no live queries needed — just inspect fetched data)
+  const untagged = castTopics.filter((s) => !s.subject_area).length;
+  if (untagged > 0) {
+    console.warn(`  ⚠ ${untagged} sub-topics have no subject_area — all frames used as fallback.`);
+    console.warn(`    Run migrations 009 and 010 in Supabase to fix this.\n`);
+  }
 
-  let generated = 0;
-  let skipped = 0;
-  let failed = 0;
+  // ── Pre-flight verification (Fix 5) ──────────────────────────────────────
+  // Live DB count per subject — immune to Supabase's 1000-row default limit.
 
-  for (const st of subTopics as unknown as SubTopic[]) {
-    console.log(`[${st.subject_id}] ${st.name}`);
+  console.log("\nCurrent state:");
+  let totalGapsEstimate = 0;
 
-    const frameConfigs = SUBJECT_FRAMES[st.subject_id];
-    if (!frameConfigs) {
-      console.log(`  ⚠ No frame config for ${st.subject_id} — skipping`);
-      continue;
+  for (const subjectId of SUBJECT_IDS) {
+    const sts = subtopicsBySubject[subjectId];
+    const frameConfigs = SUBJECT_FRAMES[subjectId];
+
+    // Live count — no row-limit issue since we only get the count
+    const { count: existing } = await supabase
+      .from("questions")
+      .select("*", { count: "exact", head: true })
+      .eq("subject_id", subjectId);
+
+    // Expected = sum of allowed-frame-count × QUESTIONS_PER_FRAME per sub-topic
+    let expected = 0;
+    for (const st of sts) {
+      const allowed = st.subject_area
+        ? (SUBJECT_AREA_FRAMES[st.subject_area] ?? Object.keys(frameConfigs))
+        : Object.keys(frameConfigs);
+      expected += allowed.length * QUESTIONS_PER_FRAME;
     }
 
-    for (const [frame, cfg] of Object.entries(frameConfigs)) {
-      const key = `${st.id}::${frame}`;
-      if (existingSet.has(key)) {
-        console.log(`  ↷ ${frame}`);
-        skipped++;
+    const existingCount = existing ?? 0;
+    const gaps = Math.max(0, expected - existingCount);
+    totalGapsEstimate += gaps;
+
+    console.log(
+      `  ${SUBJECT_NAMES[subjectId].padEnd(22)}: ${String(sts.length).padStart(3)} sub-topics, ` +
+      `${String(existingCount).padStart(5)} questions, ~${gaps} gaps`
+    );
+  }
+
+  const costEstimate = (totalGapsEstimate * 0.005).toFixed(2);
+  console.log(`\n  Will generate approximately ${totalGapsEstimate} new questions.`);
+  console.log(`  Estimated cost: $${costEstimate}`);
+  console.log(`\n  Press Enter to continue or Ctrl+C to abort...`);
+
+  // 5-second window for the user to review and abort
+  await sleep(5_000);
+
+  // ── Main generation loop ──────────────────────────────────────────────────
+
+  let totalGenerated   = 0;
+  let totalSkipped     = 0; // frame slots already at cap
+  let totalFailed      = 0;
+  let totalApiCalls    = 0;
+
+  // Fix 4 — hard cap: never exceed QUESTIONS_PER_FRAME API calls per slot per run
+  const apiCallsThisRun = new Map<string, number>();
+
+  for (const subjectId of SUBJECT_IDS) {
+    const sts = subtopicsBySubject[subjectId];
+
+    console.log(`\n${"═".repeat(60)}`);
+    console.log(`  Starting ${subjectId} (${sts.length} sub-topics)`);
+    console.log(`${"═".repeat(60)}\n`);
+
+    let subjectGenerated = 0;
+    let subjectApiCalls  = 0;
+
+    for (const st of sts) {
+      console.log(`[${st.subject_id}] ${st.name}`);
+
+      const frameConfigs = SUBJECT_FRAMES[st.subject_id];
+      if (!frameConfigs) {
+        console.log(`  ⚠ No frame config for ${st.subject_id} — skipping`);
         continue;
       }
 
-      try {
-        const result = await generateQuestion(anthropic, st, frame);
+      const allowedFrames: Set<string> = st.subject_area
+        ? new Set(SUBJECT_AREA_FRAMES[st.subject_area] ?? Object.keys(frameConfigs))
+        : new Set(Object.keys(frameConfigs));
 
-        const { error: insertErr } = await supabase.from("questions").upsert(
-          {
-            sub_topic_id:    st.id,
-            topic_id:        st.topic_id,
-            subject_id:      st.subject_id,
-            frame,
-            type:            cfg.type             ?? "mcq",
-            cognitive_level: cfg.level,
-            prompt:          result.stem,
-            options:         result.options        ?? null,
-            correct_answer:  result.correct_answer,
-            mark_scheme:     result.mark_scheme    ?? "See explanation.",
-            explanation:     result.explanation    ?? "See mark scheme.",
-            xp_reward:       cfg.xp               ?? 5,
-            paper:           cfg.paper,
-            shows_working:   cfg.shows_working,
-            partial_marks:   cfg.partial_marks,
-            ghanaian_context: cfg.ghanaian_context,
-          },
-          { onConflict: "sub_topic_id,frame", ignoreDuplicates: true }
-        );
+      for (const [frame, cfg] of Object.entries(frameConfigs)) {
+        if (!allowedFrames.has(frame)) continue;
 
-        if (insertErr) throw new Error(`DB: ${insertErr.message}`);
+        const slotKey = `${st.id}::${frame}`;
 
-        console.log(`  ✓ ${frame} (${cfg.paper})`);
-        generated++;
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.log(`  ✗ ${frame}: ${msg}`);
-        failed++;
+        // Fix 4 — hard cap check (before any DB round-trip)
+        const callsMadeThisRun = apiCallsThisRun.get(slotKey) ?? 0;
+        if (callsMadeThisRun >= QUESTIONS_PER_FRAME) {
+          console.log(`  ↷ ${frame} — per-run cap reached (${callsMadeThisRun}/${QUESTIONS_PER_FRAME})`);
+          totalSkipped++;
+          continue;
+        }
+
+        // Fix 1 — live DB count: not affected by Supabase's 1000-row default limit
+        // Fetching prompt too so we can pass it to Claude for deduplication.
+        const { data: existingQs, count: liveCount } = await supabase
+          .from("questions")
+          .select("prompt", { count: "exact" })
+          .eq("sub_topic_id", st.id)
+          .eq("frame", frame);
+
+        const have = liveCount ?? 0;
+
+        if (have >= QUESTIONS_PER_FRAME) {
+          console.log(
+            `  ↷ ${st.name} | ${frame} (${have}/${QUESTIONS_PER_FRAME}) — full`
+          );
+          totalSkipped++;
+          continue;
+        }
+
+        const existingPrompts = (existingQs ?? [])
+          .map((q) => q.prompt as string)
+          .filter(Boolean);
+
+        // Generate only what's needed, bounded by both DB gap and per-run cap
+        const needFromDb      = QUESTIONS_PER_FRAME - have;
+        const remainingRunCap = QUESTIONS_PER_FRAME - callsMadeThisRun;
+        const need = Math.min(needFromDb, remainingRunCap);
+
+        const runningPrompts = [...existingPrompts]; // grows within this slot's loop
+
+        for (let n = 0; n < need; n++) {
+          const nth = have + n + 1;
+
+          try {
+            const result = await generateQuestion(anthropic, st, frame, runningPrompts);
+
+            const { error: insertErr } = await supabase.from("questions").insert({
+              sub_topic_id:     st.id,
+              topic_id:         st.topic_id,
+              subject_id:       st.subject_id,
+              frame,
+              type:             cfg.type,
+              cognitive_level:  cfg.level,
+              prompt:           result.stem,
+              options:          result.options      ?? null,
+              correct_answer:   result.correct_answer,
+              mark_scheme:      result.mark_scheme  ?? "See explanation.",
+              explanation:      result.explanation  ?? "See mark scheme.",
+              xp_reward:        cfg.xp,
+              paper:            cfg.paper,
+              shows_working:    cfg.shows_working,
+              partial_marks:    cfg.partial_marks,
+              ghanaian_context: cfg.ghanaian_context,
+            });
+
+            if (insertErr) throw new Error(`DB: ${insertErr.message}`);
+
+            console.log(`  ✓ ${frame} (${nth}/${QUESTIONS_PER_FRAME}) — generated`);
+            runningPrompts.push(result.stem);
+
+            subjectGenerated++;
+            totalGenerated++;
+            subjectApiCalls++;
+            totalApiCalls++;
+            apiCallsThisRun.set(slotKey, (apiCallsThisRun.get(slotKey) ?? 0) + 1);
+
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.log(`  ✗ ${frame} (${nth}/${QUESTIONS_PER_FRAME}): ${msg}`);
+            totalFailed++;
+          }
+
+          await sleep(DELAY_MS);
+        }
       }
-
-      await sleep(DELAY_MS);
     }
+
+    // Fix 4 — subject-level summary
+    const subjectCost = (subjectApiCalls * 0.005).toFixed(2);
+    console.log(`\n${"═".repeat(60)}`);
+    console.log(
+      `  Completed ${subjectId}: ${subjectGenerated} generated, ` +
+      `${subjectApiCalls} API calls, ~$${subjectCost}`
+    );
+    console.log(`${"═".repeat(60)}\n`);
   }
 
-  console.log("\n" + "─".repeat(60));
+  // ── Overall summary ───────────────────────────────────────────────────────
+
+  const { count: finalTotal } = await supabase
+    .from("questions")
+    .select("*", { count: "exact", head: true })
+    .in("sub_topic_id", castTopics.map((s) => s.id));
+
+  const totalCost = (totalApiCalls * 0.005).toFixed(2);
+
+  console.log("─".repeat(60));
   console.log("Done.");
-  console.log(`  ✓ Generated : ${generated}`);
-  if (skipped > 0) console.log(`  ↷ Skipped   : ${skipped}`);
-  if (failed > 0) console.log(`  ✗ Failed    : ${failed}`);
+  console.log(`  ✓ Generated this run : ${totalGenerated}`);
+  console.log(`  ↷ Slots at cap       : ${totalSkipped} frame slots (${QUESTIONS_PER_FRAME}/${QUESTIONS_PER_FRAME})`);
+  if (totalFailed > 0) console.log(`  ✗ Failed             : ${totalFailed}`);
+  console.log(`  📡 Total API calls   : ${totalApiCalls}`);
+  console.log(`  💰 Estimated cost    : $${totalCost}`);
+  console.log(`  📊 Total in database : ${(finalTotal ?? 0).toLocaleString()} questions`);
   console.log("─".repeat(60));
 
-  if (failed > 0) process.exit(1);
+  if (totalFailed > 0) process.exit(1);
 }
 
 main().catch((err) => {
