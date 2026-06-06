@@ -24,6 +24,8 @@ export interface OnboardingPayload {
   studyDaysPerWeek: number;
   dailyGoalLevel: "light" | "standard" | "intense";
   programmeId: string | null;
+  selectedSubjects: string[];
+  subscriptionTier: "core" | "programme";
 }
 
 const GOAL_XP: Record<string, number> = {
@@ -57,25 +59,33 @@ export async function saveOnboarding(payload: OnboardingPayload) {
 
   const goalXp = GOAL_XP[payload.dailyGoalLevel];
 
-  // Determine weak / strong subjects
-  const subjects = ["core_math", "english", "integrated_science", "social_studies"] as const;
-  const weakSubjects = subjects.filter(
+  // Only analyse subjects the student actually selected (and that have live data)
+  const LIVE_CORE_SUBJECTS = ["core_math", "english", "integrated_science", "social_studies"] as const;
+  const subjects = LIVE_CORE_SUBJECTS.filter((s) =>
+    payload.selectedSubjects.includes(s)
+  ) as (typeof LIVE_CORE_SUBJECTS)[number][];
+
+  // Fall back to all 4 if selection is empty (safety)
+  const activeSubjects = subjects.length > 0 ? subjects : [...LIVE_CORE_SUBJECTS];
+
+  const weakSubjects = activeSubjects.filter(
     (s) => payload.confidence[s] <= 2 || payload.diagnosticScores[s] <= 33
   );
-  const strongSubjects = subjects.filter(
+  const strongSubjects = activeSubjects.filter(
     (s) => payload.confidence[s] >= 3 && payload.diagnosticScores[s] >= 67
   );
 
   // Focus subject = subject with lowest combined score
   // Combined score = confidence (1–4) × 25 + diagnostic (0–100)
-  const focusSubject = subjects.reduce((worst, s) => {
+  const focusSubject = activeSubjects.reduce((worst, s) => {
     const scoreA = payload.confidence[worst] * 25 + payload.diagnosticScores[worst];
     const scoreB = payload.confidence[s] * 25 + payload.diagnosticScores[s];
     return scoreB < scoreA ? s : worst;
   });
 
   const overallDiagnostic = Math.round(
-    subjects.reduce((sum, s) => sum + payload.diagnosticScores[s], 0) / 4
+    activeSubjects.reduce((sum, s) => sum + payload.diagnosticScores[s], 0) /
+      activeSubjects.length
   );
 
   // ── Safety check: ensure the students row exists ─────────────
@@ -179,6 +189,7 @@ export async function saveOnboarding(payload: OnboardingPayload) {
         daily_goal_xp:        goalXp,
         learning_pace:        "medium",
         programme_id:         payload.programmeId ?? null,
+        subscription_tier:    payload.subscriptionTier,
       })
       .eq("id", user.id);
 
@@ -195,8 +206,32 @@ export async function saveOnboarding(payload: OnboardingPayload) {
     stepErrors.push("Profile: unexpected error — check server logs");
   }
 
-  // ── Step 3: Upsert daily_goals ───────────────────────────────
-  console.log("[onboarding] step 3: upsert daily_goals");
+  // ── Step 3: Insert student_subjects ─────────────────────────
+  console.log("[onboarding] step 3: upsert student_subjects");
+  try {
+    const COMPULSORY = ["core_math", "english", "social_studies"];
+    const rows = payload.selectedSubjects.map((sid) => ({
+      student_id:    user.id,
+      subject_id:    sid,
+      is_compulsory: COMPULSORY.includes(sid),
+    }));
+    const { error } = await supabase
+      .from("student_subjects")
+      .upsert(rows, { onConflict: "student_id,subject_id" });
+
+    if (error) {
+      logSupabaseError("student_subjects upsert", error);
+      stepErrors.push(`Subjects: ${(error as { message?: string }).message ?? "unknown error"}`);
+    } else {
+      console.log("[onboarding] step 3: OK");
+    }
+  } catch (e) {
+    console.error("[onboarding] student_subjects upsert threw unexpectedly:", e);
+    stepErrors.push("Subjects: unexpected error — check server logs");
+  }
+
+  // ── Step 4: Upsert daily_goals ───────────────────────────────
+  console.log("[onboarding] step 4: upsert daily_goals");
   const today = new Date().toISOString().split("T")[0];
   try {
     const { error } = await supabase
@@ -213,15 +248,15 @@ export async function saveOnboarding(payload: OnboardingPayload) {
     if (error) {
       logSupabaseError("daily_goals upsert", error);
       // Non-fatal: daily goal is best-effort — don't block the user
-      console.warn("[onboarding] step 3 failed (non-fatal):", error);
+      console.warn("[onboarding] step 4 failed (non-fatal):", error);
     } else {
-      console.log("[onboarding] step 3: OK");
+      console.log("[onboarding] step 4: OK");
     }
   } catch (e) {
     console.error("[onboarding] daily_goals upsert threw unexpectedly:", e);
   }
 
-  // Return errors from steps 1 & 2 only (step 3 is non-fatal)
+  // Return errors from steps 1–3; step 4 (daily_goals) is non-fatal
   if (stepErrors.length > 0) {
     return { error: stepErrors.join(" | ") };
   }

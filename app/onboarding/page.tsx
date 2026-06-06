@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { SUBJECTS } from "@/types";
 import { PROGRAMMES } from "@/lib/programmes";
+import { getElectivesForProgramme, COMPULSORY_SUBJECT_IDS } from "@/lib/subjects";
 import { saveOnboarding, type OnboardingPayload } from "./actions";
 import {
   Brain,
@@ -69,7 +70,7 @@ const CONFIDENCE_OPTIONS = [
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type StepId = 1 | 2 | 3 | 4 | 5 | 6;
+type StepId = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 type PhaseId = StepId | "analysing" | "results";
 
 interface DiagQuestion {
@@ -89,6 +90,8 @@ interface SavedState {
   studyDaysPerWeek: number | null;
   dailyGoalLevel: "light" | "standard" | "intense";
   programmeId: string | null;
+  selectedSubjects: string[];
+  subscriptionTier: "core" | "programme";
 }
 
 interface ResultData {
@@ -107,6 +110,8 @@ const DEFAULT_STATE: SavedState = {
   studyDaysPerWeek: null,
   dailyGoalLevel: "standard",
   programmeId: null,
+  selectedSubjects: [...COMPULSORY_SUBJECT_IDS], // 3 compulsory always pre-selected
+  subscriptionTier: "programme", // default to recommended plan
 };
 
 // ─── Root Component ───────────────────────────────────────────────────────────
@@ -176,7 +181,7 @@ export default function OnboardingPage() {
 
   const goTo = (next: PhaseId) => {
     setSaveError(null);
-    if (next === 5) fetchDiagnostic();
+    if (next === 6) fetchDiagnostic();
     setPhase(next);
   };
 
@@ -206,7 +211,7 @@ export default function OnboardingPage() {
       }
       setDiagScores(scores);
       goTo("analysing");
-      setTimeout(() => goTo(6), 2500);
+      setTimeout(() => goTo(7), 2500);
     }
   };
 
@@ -231,6 +236,8 @@ export default function OnboardingPage() {
       studyDaysPerWeek: saved.studyDaysPerWeek,
       dailyGoalLevel: saved.dailyGoalLevel,
       programmeId: saved.programmeId,
+      selectedSubjects: saved.selectedSubjects,
+      subscriptionTier: saved.subscriptionTier,
     };
 
     const result = await saveOnboarding(payload);
@@ -277,7 +284,7 @@ export default function OnboardingPage() {
       {/* Step indicator */}
       <div className="fixed top-0 left-0 right-0 z-50 bg-[#0F0E0C]/90 backdrop-blur-sm border-b border-[#1A1916]">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-2">
-          {[1, 2, 3, 4, 5, 6].map((n) => (
+          {[1, 2, 3, 4, 5, 6, 7].map((n) => (
             <div key={n} className="flex items-center gap-2 flex-1">
               <div
                 className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
@@ -290,7 +297,7 @@ export default function OnboardingPage() {
               >
                 {n < stepPhase ? <Check size={12} /> : n}
               </div>
-              {n < 6 && (
+              {n < 7 && (
                 <div
                   className={`flex-1 h-0.5 rounded-full transition-all ${
                     n < stepPhase ? "bg-[#F59E0B]" : "bg-[#2E2C28]"
@@ -317,26 +324,38 @@ export default function OnboardingPage() {
             />
           )}
           {stepPhase === 3 && (
-            <StepConfidence
-              confidence={saved.confidence}
-              onChange={(subj, val) =>
-                updateSaved({ confidence: { ...saved.confidence, [subj]: val } })
-              }
+            <StepSubjectSelection
+              programmeId={saved.programmeId}
+              subscriptionTier={saved.subscriptionTier}
+              selectedSubjects={saved.selectedSubjects}
+              onChangeTier={(tier) => updateSaved({ subscriptionTier: tier })}
+              onChangeSubjects={(subs) => updateSaved({ selectedSubjects: subs })}
               onNext={() => goTo(4)}
               onBack={() => goTo(2)}
             />
           )}
           {stepPhase === 4 && (
-            <StepLearningStyle
-              prefersExamples={saved.prefersExamplesFirst}
-              focusDuration={saved.focusDurationMinutes}
-              studyTime={saved.preferredStudyTime}
-              onChange={updateSaved}
+            <StepConfidence
+              confidence={saved.confidence}
+              selectedSubjectIds={saved.selectedSubjects}
+              onChange={(subj, val) =>
+                updateSaved({ confidence: { ...saved.confidence, [subj]: val } })
+              }
               onNext={() => goTo(5)}
               onBack={() => goTo(3)}
             />
           )}
           {stepPhase === 5 && (
+            <StepLearningStyle
+              prefersExamples={saved.prefersExamplesFirst}
+              focusDuration={saved.focusDurationMinutes}
+              studyTime={saved.preferredStudyTime}
+              onChange={updateSaved}
+              onNext={() => goTo(6)}
+              onBack={() => goTo(4)}
+            />
+          )}
+          {stepPhase === 6 && (
             <StepDiagnostic
               questions={diagQuestions}
               currentIndex={currentDiagIndex}
@@ -345,11 +364,11 @@ export default function OnboardingPage() {
               onBack={() => {
                 setCurrentDiagIndex(0);
                 setDiagAnswers({});
-                goTo(4);
+                goTo(5);
               }}
             />
           )}
-          {stepPhase === 6 && (
+          {stepPhase === 7 && (
             <StepGoals
               mainGoal={saved.mainGoal}
               studyDays={saved.studyDaysPerWeek}
@@ -357,7 +376,7 @@ export default function OnboardingPage() {
               onChange={updateSaved}
               onBack={() => {
                 setCurrentDiagIndex(0);
-                goTo(5);
+                goTo(6);
               }}
               onSubmit={handleSubmit}
               saving={saving}
@@ -537,20 +556,230 @@ function StepProgramme({
   );
 }
 
-// ─── Step 3: Subject Confidence ───────────────────────────────────────────────
+// ─── Step 3: Subject Selection ────────────────────────────────────────────────
+
+const COMPULSORY_INFO = [
+  { id: "core_math",     name: "Core Mathematics",  icon: "∑",  color: "#F59E0B" },
+  { id: "english",       name: "English Language",  icon: "✎",  color: "#A78BFA" },
+  { id: "social_studies",name: "Social Studies",    icon: "◎",  color: "#60A5FA" },
+] as const;
+
+function StepSubjectSelection({
+  programmeId,
+  subscriptionTier,
+  selectedSubjects,
+  onChangeTier,
+  onChangeSubjects,
+  onNext,
+  onBack,
+}: {
+  programmeId: string | null;
+  subscriptionTier: "core" | "programme";
+  selectedSubjects: string[];
+  onChangeTier: (t: "core" | "programme") => void;
+  onChangeSubjects: (s: string[]) => void;
+  onNext: () => void;
+  onBack: () => void;
+}) {
+  const COMPULSORY_IDS = COMPULSORY_SUBJECT_IDS as readonly string[];
+  const maxExtra = subscriptionTier === "core" ? 1 : 5;
+  const electives = getElectivesForProgramme(programmeId);
+  const extraSelected = selectedSubjects.filter((id) => !COMPULSORY_IDS.includes(id));
+  const isValid = extraSelected.length === maxExtra;
+
+  const toggleSubject = (id: string) => {
+    if (COMPULSORY_IDS.includes(id)) return;
+    if (selectedSubjects.includes(id)) {
+      onChangeSubjects(selectedSubjects.filter((s) => s !== id));
+    } else if (extraSelected.length < maxExtra) {
+      onChangeSubjects([...selectedSubjects, id]);
+    }
+  };
+
+  const changeTier = (tier: "core" | "programme") => {
+    onChangeTier(tier);
+    const newMax = tier === "core" ? 1 : 5;
+    if (extraSelected.length > newMax) {
+      onChangeSubjects([...COMPULSORY_IDS, ...extraSelected.slice(0, newMax)]);
+    }
+  };
+
+  return (
+    <div className="animate-fade-in space-y-6">
+      <div>
+        <h2 className="text-2xl font-black text-[#F5F0E8]">Choose your subjects</h2>
+        <p className="text-[#9CA3AF] mt-2 text-sm leading-relaxed">
+          These 3 are required for all students. Pick the rest based on what you study in school.
+        </p>
+      </div>
+
+      {/* Plan cards */}
+      <div className="grid grid-cols-2 gap-3">
+        {(["core", "programme"] as const).map((tier) => {
+          const active = subscriptionTier === tier;
+          const isCore = tier === "core";
+          return (
+            <button
+              key={tier}
+              onClick={() => changeTier(tier)}
+              className={`relative p-4 rounded-2xl border text-left transition-all ${
+                active
+                  ? isCore
+                    ? "border-[#60A5FA] bg-[#60A5FA]/10"
+                    : "border-[#F59E0B] bg-[#F59E0B]/10"
+                  : "border-[#2E2C28] bg-[#1A1916] hover:border-[#3E3C38]"
+              }`}
+            >
+              {!isCore && (
+                <span className="absolute top-2 right-2 text-[8px] font-bold bg-[#F59E0B] text-black px-1.5 py-0.5 rounded-full">
+                  RECOMMENDED
+                </span>
+              )}
+              <div className={`text-xs font-bold mb-1 ${active ? (isCore ? "text-[#60A5FA]" : "text-[#F59E0B]") : "text-[#9CA3AF]"}`}>
+                {isCore ? "Core Plan" : "Programme Plan"}
+              </div>
+              <div className="text-lg font-black text-[#F5F0E8]">
+                GHC {isCore ? "40" : "80"}
+                <span className="text-xs font-normal text-[#6B6860]">/mo</span>
+              </div>
+              <div className="text-xs text-[#6B6860] mt-1">
+                {isCore ? "4 subjects total" : "8 subjects total"}
+              </div>
+              <div className="text-[10px] text-[#4B5563] mt-0.5">
+                {isCore ? "3 core + pick 1 more" : "3 core + pick 5 more"}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Compulsory subjects */}
+      <div className="space-y-2">
+        {COMPULSORY_INFO.map((s) => (
+          <div
+            key={s.id}
+            className="flex items-center gap-3 px-4 py-3 rounded-xl border border-[#2E2C28] bg-[#1A1916] opacity-70"
+          >
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-sm flex-none"
+              style={{ backgroundColor: `${s.color}20` }}
+            >
+              {s.icon}
+            </div>
+            <span className="text-sm font-medium text-[#F5F0E8] flex-1">{s.name}</span>
+            <span className="text-[10px] font-bold text-[#6B6860] bg-[#2E2C28] px-2 py-0.5 rounded-full">
+              REQUIRED
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Divider */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-px bg-[#2E2C28]" />
+        <div className="text-xs text-[#6B6860] font-medium">
+          Now pick your other subjects{" "}
+          <span className={extraSelected.length === maxExtra ? "text-[#34D399]" : "text-[#F59E0B]"}>
+            ({extraSelected.length}/{maxExtra})
+          </span>
+        </div>
+        <div className="flex-1 h-px bg-[#2E2C28]" />
+      </div>
+
+      {/* Elective grid */}
+      <div className="grid grid-cols-2 gap-2">
+        {electives.map((el) => {
+          const isSelected = selectedSubjects.includes(el.id);
+          const canAdd = extraSelected.length < maxExtra;
+          const disabled = !isSelected && !canAdd;
+          return (
+            <button
+              key={el.id}
+              onClick={() => toggleSubject(el.id)}
+              disabled={disabled}
+              className={`relative text-left p-3 rounded-xl border transition-all ${
+                isSelected
+                  ? "border-[#34D399] bg-[#34D399]/10"
+                  : disabled
+                  ? "border-[#1A1916] bg-[#1A1916] opacity-40 cursor-not-allowed"
+                  : "border-[#2E2C28] bg-[#1A1916] hover:border-[#3E3C38]"
+              }`}
+            >
+              {!el.isLive && (
+                <span className="absolute top-1.5 right-1.5 text-[8px] font-bold bg-[#2E2C28] text-[#6B6860] px-1 py-0.5 rounded-full">
+                  SOON
+                </span>
+              )}
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-sm flex-none"
+                  style={{ backgroundColor: `${el.color}20`, color: el.color }}
+                >
+                  {el.icon}
+                </span>
+                <span className="text-xs font-semibold text-[#F5F0E8] leading-tight">
+                  {el.name}
+                </span>
+              </div>
+              {isSelected && (
+                <div className="absolute top-1.5 right-1.5 w-4 h-4 bg-[#34D399] rounded-full flex items-center justify-center">
+                  <Check size={9} className="text-black" />
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {extraSelected.length > 0 &&
+        selectedSubjects.some((id) => {
+          const el = electives.find((e) => e.id === id);
+          return el && !el.isLive;
+        }) && (
+          <div className="text-xs text-[#F59E0B] bg-[#F59E0B]/10 border border-[#F59E0B]/20 rounded-xl px-3 py-2">
+            Coming-soon subjects are saved for when they launch — your core subjects are fully active now.
+          </div>
+        )}
+
+      <div className="flex gap-3 pt-2">
+        <button
+          onClick={onBack}
+          className="flex-none px-5 py-4 rounded-2xl border border-[#2E2C28] text-[#9CA3AF] hover:border-[#3E3C38] transition-colors flex items-center gap-1"
+        >
+          <ChevronLeft size={16} />
+          Back
+        </button>
+        <button
+          onClick={onNext}
+          disabled={!isValid}
+          className="flex-1 bg-[#F59E0B] hover:bg-[#D97706] disabled:opacity-40 disabled:cursor-not-allowed text-black font-bold py-4 rounded-2xl transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+        >
+          Continue <ChevronRight size={18} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 4: Subject Confidence ───────────────────────────────────────────────
 
 function StepConfidence({
   confidence,
+  selectedSubjectIds,
   onChange,
   onNext,
   onBack,
 }: {
   confidence: Record<string, number>;
+  selectedSubjectIds: string[];
   onChange: (subj: string, val: number) => void;
   onNext: () => void;
   onBack: () => void;
 }) {
-  const allRated = SUBJECTS.every((s) => confidence[s.id] > 0);
+  const subjectsToRate = SUBJECTS.filter((s) => selectedSubjectIds.includes(s.id));
+  const allRated = subjectsToRate.length > 0
+    ? subjectsToRate.every((s) => confidence[s.id] > 0)
+    : SUBJECTS.every((s) => confidence[s.id] > 0);
 
   return (
     <div className="animate-fade-in space-y-6">
@@ -566,7 +795,7 @@ function StepConfidence({
       </div>
 
       <div className="space-y-3">
-        {SUBJECTS.map((subject) => {
+        {(subjectsToRate.length > 0 ? subjectsToRate : SUBJECTS).map((subject) => {
           const selected = confidence[subject.id] || 0;
           return (
             <div

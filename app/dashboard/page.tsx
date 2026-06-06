@@ -45,7 +45,7 @@ export default async function DashboardHome() {
     .eq("student_id", user.id)
     .in("mastery_state", ["mastered", "locked_in"]);
 
-  // Per-subject mastered counts
+  // Per-subject mastered counts (computed after selectedSubjectIds is known below)
   const subjectIds = ["core_math", "english", "integrated_science", "social_studies"];
   const masteredBySubjectResults = await Promise.all(
     subjectIds.map((sid) =>
@@ -114,6 +114,19 @@ export default async function DashboardHome() {
     integrated_science: s.rank_integrated_science,
     social_studies: s.rank_social_studies,
   };
+
+  // Fetch the subjects this student selected during onboarding
+  const { data: studentSubjectRows } = await supabase
+    .from("student_subjects")
+    .select("subject_id")
+    .eq("student_id", user.id);
+
+  // Fall back to all SUBJECTS if no rows yet (existing students pre-migration)
+  const selectedSubjectIds = studentSubjectRows?.length
+    ? studentSubjectRows.map((r: { subject_id: string }) => r.subject_id)
+    : SUBJECTS.map((sub) => sub.id);
+
+  const activeSubjects = SUBJECTS.filter((sub) => selectedSubjectIds.includes(sub.id));
 
   const focusSubjectInfo = s.focus_subject
     ? SUBJECTS.find((sub) => sub.id === s.focus_subject)
@@ -312,7 +325,7 @@ export default async function DashboardHome() {
           Your Subjects
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {SUBJECTS.map((subject) => {
+          {activeSubjects.map((subject) => {
             const xp = subjectXP[subject.code as keyof typeof subjectXP] ?? 0;
             const rank = subjectRank[subject.code as keyof typeof subjectRank] ?? "F3";
             const isFocus = s.focus_subject === subject.id;

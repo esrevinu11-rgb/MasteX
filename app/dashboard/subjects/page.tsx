@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { RankBadge } from "@/components/ui/rank-badge";
 import { XPBar } from "@/components/ui/xp-bar";
 import { SUBJECTS, MASTERY_STATES, type Student, type MasteryState } from "@/types";
+import { ManageSubjectsPanel } from "@/components/dashboard/ManageSubjectsPanel";
 import { ChevronRight, Zap } from "lucide-react";
 
 export default async function SubjectsPage() {
@@ -20,6 +21,19 @@ export default async function SubjectsPage() {
     .single();
   if (!student) redirect("/auth/login");
   const s = student as Student;
+
+  // Fetch student's subject selections
+  const { data: studentSubjectRows } = await supabase
+    .from("student_subjects")
+    .select("subject_id, is_compulsory")
+    .eq("student_id", user.id);
+
+  const selectedSubjectIds =
+    studentSubjectRows && studentSubjectRows.length > 0
+      ? studentSubjectRows.map((r) => r.subject_id)
+      : SUBJECTS.map((sub) => sub.id); // fallback: show all for pre-migration students
+
+  const activeSubjects = SUBJECTS.filter((sub) => selectedSubjectIds.includes(sub.id));
 
   // Fetch topics for this year group
   const { data: topics } = await supabase
@@ -73,7 +87,7 @@ export default async function SubjectsPage() {
 
       {/* Summary tiles */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {SUBJECTS.map((subject) => {
+        {activeSubjects.map((subject) => {
           const xp = subjectXP[subject.code as keyof typeof subjectXP] ?? 0;
           const rank = subjectRank[subject.code as keyof typeof subjectRank] ?? "F3";
           return (
@@ -92,7 +106,7 @@ export default async function SubjectsPage() {
 
       {/* Subject detail cards */}
       <div className="space-y-6">
-        {SUBJECTS.map((subject) => {
+        {activeSubjects.map((subject) => {
           const xp = subjectXP[subject.code as keyof typeof subjectXP] ?? 0;
           const rank = subjectRank[subject.code as keyof typeof subjectRank] ?? "F3";
           const subjectTopics = (topics ?? []).filter(
@@ -212,6 +226,12 @@ export default async function SubjectsPage() {
           );
         })}
       </div>
+
+      <ManageSubjectsPanel
+        studentSubjects={studentSubjectRows ?? []}
+        programmeId={s.programme_id ?? null}
+        subscriptionTier={s.subscription_tier ?? null}
+      />
     </div>
   );
 }
