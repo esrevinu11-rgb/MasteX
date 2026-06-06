@@ -7,6 +7,7 @@ import { XPBar } from "@/components/ui/xp-bar";
 import { SUBJECTS, type Student } from "@/types";
 import { cn } from "@/lib/utils";
 import { Trophy, Crown } from "lucide-react";
+import { ALL_RANKS, getRankInfo } from "@/lib/ranking";
 
 type Scope = "overall" | "year" | "subject";
 
@@ -71,7 +72,7 @@ export default function RankingsPage() {
         school_name: s.school_name as string,
         year_group: s.year_group as number,
         xp: (s[xpField] as number) || 0,
-        rank: (s[rankField] as string) || "F3",
+        rank: (s[rankField] as string) || "F",
         position: (s[posField] as number) || (i + 1),
       }));
 
@@ -113,9 +114,12 @@ export default function RankingsPage() {
         <div className="bg-[#1A1916] border border-[#2E2C28] rounded-2xl p-6">
           <div className="text-xs text-[#6B6860] mb-4 uppercase tracking-widest">Your Rank</div>
           <div className="flex items-center gap-4 mb-4">
-            <RankBadge rank={myRank || "F3"} size="lg" />
+            <RankBadge rank={myRank || "F"} size="lg" />
             <div>
               <div className="text-2xl font-black">#{myPos || "—"}</div>
+              <div className="text-sm font-semibold" style={{ color: getRankInfo(myRank || "F").color }}>
+                {getRankInfo(myRank || "F").label}
+              </div>
               <div className="text-sm text-[#9CA3AF]">{(myXP || 0).toLocaleString()} XP</div>
             </div>
           </div>
@@ -126,6 +130,34 @@ export default function RankingsPage() {
           />
         </div>
       )}
+
+      {/* Rank tier legend */}
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+        {[...ALL_RANKS].reverse().map((tier) => {
+          const info = getRankInfo(tier);
+          const isMyTier = myRank && myRank[0] === tier;
+          return (
+            <div
+              key={tier}
+              className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl border ${
+                isMyTier ? "border-opacity-60" : "border-[#2E2C28]"
+              }`}
+              style={isMyTier ? { borderColor: info.borderColor, backgroundColor: info.bgColor } : {}}
+            >
+              <div
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-sm font-black border-2"
+                style={{ color: info.color, backgroundColor: "rgba(0,0,0,0.2)", borderColor: info.borderColor }}
+              >
+                {tier}
+              </div>
+              <div className="text-[10px] font-semibold text-center" style={{ color: info.color }}>
+                {info.label}
+              </div>
+              <div className="text-[9px] text-[#4B5563] text-center">{info.description}</div>
+            </div>
+          );
+        })}
+      </div>
 
       {/* Scope tabs */}
       <div className="flex gap-1 bg-[#1A1916] border border-[#2E2C28] rounded-xl p-1">
@@ -212,7 +244,7 @@ export default function RankingsPage() {
                       )}
                     >
                       {pos === 1 && <Crown size={20} className="text-[#F59E0B] mx-auto mb-2" />}
-                      <RankBadge rank={entry?.rank || "F3"} size="sm" className="mx-auto mb-2" />
+                      <RankBadge rank={entry?.rank || "F"} size="sm" className="mx-auto mb-2" />
                       <div className="text-xs font-semibold truncate">
                         {entry?.full_name.split(" ")[0]}
                       </div>

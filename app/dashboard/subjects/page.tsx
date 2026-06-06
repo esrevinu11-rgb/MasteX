@@ -89,7 +89,7 @@ export default async function SubjectsPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {activeSubjects.map((subject) => {
           const xp = subjectXP[subject.code as keyof typeof subjectXP] ?? 0;
-          const rank = subjectRank[subject.code as keyof typeof subjectRank] ?? "F3";
+          const rank = subjectRank[subject.code as keyof typeof subjectRank] ?? "F";
           return (
             <div
               key={subject.id}
@@ -108,7 +108,7 @@ export default async function SubjectsPage() {
       <div className="space-y-6">
         {activeSubjects.map((subject) => {
           const xp = subjectXP[subject.code as keyof typeof subjectXP] ?? 0;
-          const rank = subjectRank[subject.code as keyof typeof subjectRank] ?? "F3";
+          const rank = subjectRank[subject.code as keyof typeof subjectRank] ?? "F";
           const subjectTopics = (topics ?? []).filter(
             (t: Record<string, unknown>) => t.subject_id === subject.id
           );
@@ -145,7 +145,7 @@ export default async function SubjectsPage() {
                   <div className="flex items-center gap-3">
                     <RankBadge rank={rank} size="sm" />
                     <Link
-                      href={`/dashboard/study?subject=${subject.id}`}
+                      href={`/dashboard/study/${subject.id}`}
                       className="flex items-center gap-1.5 text-xs font-semibold px-3 py-2 rounded-lg transition-colors"
                       style={{ backgroundColor: `${subject.color}20`, color: subject.color }}
                     >
@@ -190,7 +190,7 @@ export default async function SubjectsPage() {
                     return (
                       <Link
                         key={topic.id as string}
-                        href={`/dashboard/study?topic=${topic.id}`}
+                        href={`/dashboard/study/${subject.id}`}
                         className="flex items-center gap-4 px-6 py-3.5 hover:bg-[#252320] transition-colors group"
                       >
                         <div

@@ -9,7 +9,7 @@ import {
   saveStudySession,
   type SaveSessionPayload,
   type QuestionAttemptData,
-} from "../actions";
+} from "../../actions";
 import {
   ArrowLeft,
   ChevronRight,
@@ -351,17 +351,26 @@ export default function StudySessionPage() {
       }
     }
 
-    // Fetch questions ordered by cognitive_level (easiest first)
-    const { data: qs } = await supabase
+    // Fetch all questions then pick one per frame randomly (variety on repeat visits)
+    const { data: allQs } = await supabase
       .from("questions")
       .select(
         "id, frame, cognitive_level, type, paper, prompt, options, correct_answer, mark_scheme, explanation, xp_reward"
       )
-      .eq("sub_topic_id", sub_topic_id)
-      .order("cognitive_level", { ascending: true })
-      .limit(6);
+      .eq("sub_topic_id", sub_topic_id);
 
-    setQuestions((qs ?? []) as Question[]);
+    const byFrame = new Map<string, Question[]>();
+    for (const q of (allQs ?? []) as Question[]) {
+      const bucket = byFrame.get(q.frame) ?? [];
+      bucket.push(q);
+      byFrame.set(q.frame, bucket);
+    }
+    const picked: Question[] = [];
+    for (const bucket of byFrame.values()) {
+      picked.push(bucket[Math.floor(Math.random() * bucket.length)]);
+    }
+    picked.sort((a, b) => a.cognitive_level - b.cognitive_level);
+    setQuestions(picked);
 
     // Resume at persisted phase or start from explanation
     const resumePhase = persisted.phase ?? "explanation";
@@ -618,7 +627,7 @@ export default function StudySessionPage() {
   const header = (
     <div className="mb-2">
       <Link
-        href="/dashboard/study"
+        href={subTopic ? `/dashboard/study/${subTopic.subject_id}` : "/dashboard/study"}
         className="inline-flex items-center gap-1.5 text-xs text-[#6B6860] hover:text-[#9CA3AF] mb-4"
       >
         <ArrowLeft size={12} /> Back to study

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { SUBJECTS } from "@/types";
 import { PROGRAMMES } from "@/lib/programmes";
-import { getElectivesForProgramme, COMPULSORY_SUBJECT_IDS } from "@/lib/subjects";
+import { ALL_ELECTIVE_SUBJECTS, getElectivesForProgramme, COMPULSORY_SUBJECT_IDS } from "@/lib/subjects";
 import { saveOnboarding, type OnboardingPayload } from "./actions";
 import {
   Brain,
@@ -583,9 +583,9 @@ function StepSubjectSelection({
 }) {
   const COMPULSORY_IDS = COMPULSORY_SUBJECT_IDS as readonly string[];
   const maxExtra = subscriptionTier === "core" ? 1 : 5;
-  const electives = getElectivesForProgramme(programmeId);
+  const electives = ALL_ELECTIVE_SUBJECTS; // free-form: all subjects, no programme filter
   const extraSelected = selectedSubjects.filter((id) => !COMPULSORY_IDS.includes(id));
-  const isValid = extraSelected.length === maxExtra;
+  const isValid = extraSelected.length >= 1;
 
   const toggleSubject = (id: string) => {
     if (COMPULSORY_IDS.includes(id)) return;
@@ -609,7 +609,7 @@ function StepSubjectSelection({
       <div>
         <h2 className="text-2xl font-black text-[#F5F0E8]">Choose your subjects</h2>
         <p className="text-[#9CA3AF] mt-2 text-sm leading-relaxed">
-          These 3 are required for all students. Pick the rest based on what you study in school.
+          These 3 are required for all students. Pick the rest based on what you actually study in school — any combination.
         </p>
       </div>
 
@@ -678,9 +678,9 @@ function StepSubjectSelection({
       <div className="flex items-center gap-3">
         <div className="flex-1 h-px bg-[#2E2C28]" />
         <div className="text-xs text-[#6B6860] font-medium">
-          Now pick your other subjects{" "}
-          <span className={extraSelected.length === maxExtra ? "text-[#34D399]" : "text-[#F59E0B]"}>
-            ({extraSelected.length}/{maxExtra})
+          Pick up to {maxExtra} more subject{maxExtra !== 1 ? "s" : ""}{" "}
+          <span className={extraSelected.length >= 1 ? "text-[#34D399]" : "text-[#F59E0B]"}>
+            ({extraSelected.length}/{maxExtra} selected)
           </span>
         </div>
         <div className="flex-1 h-px bg-[#2E2C28]" />

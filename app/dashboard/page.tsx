@@ -6,7 +6,7 @@ import { XPBar } from "@/components/ui/xp-bar";
 import { GoalRing } from "@/components/ui/goal-ring";
 import { ProgrammeSelectBanner } from "@/components/dashboard/ProgrammeSelectBanner";
 import { SUBJECTS, type Student } from "@/types";
-import { PROGRAMMES } from "@/lib/programmes";
+import { getSubjectInfo } from "@/lib/subjects";
 import {
   Flame,
   Star,
@@ -15,7 +15,6 @@ import {
   ArrowRight,
   Calendar,
   Target,
-  Lock,
 } from "lucide-react";
 
 export default async function DashboardHome() {
@@ -245,7 +244,7 @@ export default async function DashboardHome() {
 
       {/* ── Focus subject banner ─────────────────────────────────────────────── */}
       {focusSubjectInfo && (
-        <Link href={`/dashboard/study?subject=${focusSubjectInfo.id}`}>
+        <Link href={`/dashboard/study/${focusSubjectInfo.id}`}>
           <div
             className="rounded-2xl p-4 border flex items-center gap-4 hover:opacity-90 transition-opacity"
             style={{
@@ -327,12 +326,12 @@ export default async function DashboardHome() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {activeSubjects.map((subject) => {
             const xp = subjectXP[subject.code as keyof typeof subjectXP] ?? 0;
-            const rank = subjectRank[subject.code as keyof typeof subjectRank] ?? "F3";
+            const rank = subjectRank[subject.code as keyof typeof subjectRank] ?? "F";
             const isFocus = s.focus_subject === subject.id;
             return (
               <Link
                 key={subject.id}
-                href={`/dashboard/study?subject=${subject.id}`}
+                href={`/dashboard/study/${subject.id}`}
                 className={`bg-[#1A1916] border rounded-2xl p-5 hover:border-[#3E3C38] transition-all group ${
                   isFocus ? "border-opacity-60" : "border-[#2E2C28]"
                 }`}
@@ -385,39 +384,49 @@ export default async function DashboardHome() {
         </div>
       </div>
 
-      {/* ── Elective subjects ────────────────────────────────────────────────── */}
+      {/* ── Coming-soon electives student selected ──────────────────────────── */}
       {(() => {
-        const prog = s.programme_id
-          ? PROGRAMMES.find((p) => p.id === s.programme_id)
-          : null;
-        if (!prog) return null;
+        // Coming-soon subjects: student selected them but they aren't live yet (not in SUBJECTS)
+        const comingSoonIds = selectedSubjectIds.filter(
+          (id) => !SUBJECTS.find((sub) => sub.id === id)
+        );
+        if (comingSoonIds.length === 0) return null;
         return (
           <div>
             <h2 className="text-xs font-semibold text-[#6B6860] uppercase tracking-widest mb-4">
-              Your Electives — {prog.name}
+              Your Upcoming Subjects
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {prog.electives.map((el) => (
-                <div
-                  key={el.code}
-                  className="bg-[#1A1916] border border-[#2E2C28] rounded-2xl p-5 flex items-center gap-4 opacity-60"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-[#2E2C28] flex items-center justify-center flex-none">
-                    <Lock size={16} className="text-[#4B5563]" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-[#F5F0E8] truncate">
-                      {el.name}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {comingSoonIds.map((id) => {
+                const info = getSubjectInfo(id);
+                const name = info?.name ?? id.replace(/_/g, " ");
+                const icon = info?.icon ?? "📚";
+                const color = info?.color ?? "#6B6860";
+                return (
+                  <div
+                    key={id}
+                    className="bg-[#1A1916] border border-[#2E2C28] rounded-2xl p-4 flex items-center gap-3"
+                  >
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center text-lg flex-none"
+                      style={{ backgroundColor: `${color}15` }}
+                    >
+                      {icon}
                     </div>
-                    <div className="text-xs text-[#4B5563] mt-0.5">
-                      Questions &amp; mastery tracking coming soon
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold text-[#F5F0E8] truncate capitalize">
+                        {name}
+                      </div>
+                      <div className="text-xs text-[#4B5563] mt-0.5">
+                        We&apos;re preparing content — you&apos;ll be notified when it&apos;s ready
+                      </div>
                     </div>
+                    <span className="text-[9px] font-bold bg-[#2E2C28] text-[#6B6860] px-1.5 py-0.5 rounded-full flex-none">
+                      SOON
+                    </span>
                   </div>
-                  <span className="text-[9px] font-bold bg-[#2E2C28] text-[#6B6860] px-2 py-1 rounded-full flex-none">
-                    SOON
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         );
@@ -493,7 +502,7 @@ export default async function DashboardHome() {
               return (
                 <Link
                   key={item.id as string}
-                  href={`/dashboard/study?subtopic=${item.sub_topic_id}&mode=review`}
+                  href={`/dashboard/study/session/${item.sub_topic_id as string}`}
                   className="flex items-center gap-4 bg-[#1A1916] border border-[#2E2C28] rounded-xl px-4 py-3 hover:border-[#3E3C38] transition-colors"
                 >
                   <div

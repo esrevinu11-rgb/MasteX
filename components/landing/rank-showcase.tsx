@@ -2,11 +2,11 @@ import { getRankInfo, ALL_RANKS } from "@/lib/ranking";
 import { RankBadge } from "@/components/ui/rank-badge";
 
 const mockLeaderboard = [
-  { name: "Kwesi Boateng", school: "Presbyterian Boys' SHS", xp: 18450, rank: "S", pos: 1, year: 2 },
-  { name: "Kweku Mensah", school: "Achimota School", xp: 17820, rank: "A1", pos: 2, year: 3 },
-  { name: "Abena Osei", school: "Wesley Girls' SHS", xp: 16990, rank: "A1", pos: 3, year: 2 },
-  { name: "Kofi Darko", school: "Prempeh College", xp: 15700, rank: "A2", pos: 4, year: 3 },
-  { name: "Adjoa Asante", school: "GISS", xp: 14850, rank: "A2", pos: 5, year: 1 },
+  { name: "Kwesi Boateng", school: "Presbyterian Boys' SHS", xp: 18450, rank: "A", pos: 1, year: 2 },
+  { name: "Kweku Mensah", school: "Achimota School", xp: 17820, rank: "A", pos: 2, year: 3 },
+  { name: "Abena Osei", school: "Wesley Girls' SHS", xp: 16990, rank: "A", pos: 3, year: 2 },
+  { name: "Kofi Darko", school: "Prempeh College", xp: 15700, rank: "B", pos: 4, year: 3 },
+  { name: "Adjoa Asante", school: "GISS", xp: 14850, rank: "B", pos: 5, year: 1 },
 ];
 
 export function RankShowcase() {
@@ -20,8 +20,8 @@ export function RankShowcase() {
             <span className="text-[#F59E0B]">national ranks</span>
           </h2>
           <p className="text-[#9CA3AF] text-lg max-w-xl mx-auto">
-            Every student is ranked nationally. 19 tiers from F3 to S — where
-            does your grind take you?
+            Every student is ranked nationally. 6 grades from F to A — just like
+            your school tests.
           </p>
         </div>
 
@@ -29,56 +29,40 @@ export function RankShowcase() {
           {/* Rank ladder */}
           <div>
             <h3 className="text-sm font-semibold text-[#6B6860] uppercase tracking-widest mb-6">
-              All Rank Tiers
+              All Rank Grades
             </h3>
-            <div className="flex flex-wrap gap-2">
-              {ALL_RANKS.map((rank) => {
+            <div className="space-y-2">
+              {[...ALL_RANKS].reverse().map((rank) => {
                 const info = getRankInfo(rank);
                 return (
                   <div
                     key={rank}
-                    className="flex flex-col items-center gap-1"
+                    className="flex items-center gap-4 p-3 rounded-xl border border-[#2E2C28]"
+                    style={{ backgroundColor: info.bgColor }}
                   >
                     <div
-                      className="w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold border-2 rank-badge"
+                      className="w-10 h-10 rounded-lg flex items-center justify-center text-lg font-black border-2 flex-none"
                       style={{
                         color: info.color,
-                        backgroundColor: info.bgColor,
+                        backgroundColor: "rgba(0,0,0,0.3)",
                         borderColor: info.borderColor,
-                        boxShadow: rank === "S" ? `0 0 16px ${info.color}60` : undefined,
                       }}
                     >
                       {rank}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-bold" style={{ color: info.color }}>
+                        {info.label}
+                      </div>
+                      <div className="text-xs text-[#9CA3AF]">{info.description}</div>
                     </div>
                   </div>
                 );
               })}
             </div>
-            <div className="mt-8 space-y-3">
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-3 h-3 rounded-full bg-[#F59E0B]" />
-                <span className="text-[#9CA3AF]">
-                  <strong className="text-white">S rank</strong> — top 1% nationally
-                </span>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-3 h-3 rounded-full bg-[#A78BFA]" />
-                <span className="text-[#9CA3AF]">
-                  <strong className="text-white">A rank</strong> — top 2–10%
-                </span>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-3 h-3 rounded-full bg-[#60A5FA]" />
-                <span className="text-[#9CA3AF]">
-                  <strong className="text-white">B rank</strong> — top 11–25%
-                </span>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-3 h-3 rounded-full bg-[#9CA3AF]" />
-                <span className="text-[#9CA3AF]">
-                  Ranks update every 24 hours. No XP decay.
-                </span>
-              </div>
+            <div className="mt-6 text-xs text-[#4B5563] flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-[#4B5563]" />
+              Ranks update every 24 hours. No XP decay.
             </div>
           </div>
 
@@ -91,17 +75,12 @@ export function RankShowcase() {
               {mockLeaderboard.map((student) => (
                 <div
                   key={student.pos}
-                  className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${
-                    student.rank === "S"
-                      ? "bg-[#1A1916] border-[#F59E0B]/40 s-rank-glow"
-                      : "bg-[#1A1916] border-[#2E2C28]"
-                  }`}
+                  className="flex items-center gap-4 p-4 rounded-xl border bg-[#1A1916] border-[#2E2C28]"
                 >
-                  {/* Position */}
                   <span
                     className={`text-sm font-bold w-6 text-center ${
                       student.pos === 1
-                        ? "text-[#F59E0B]"
+                        ? "text-[#FFD700]"
                         : student.pos === 2
                         ? "text-[#9CA3AF]"
                         : student.pos === 3
@@ -112,16 +91,15 @@ export function RankShowcase() {
                     #{student.pos}
                   </span>
 
-                  {/* Rank badge */}
                   <RankBadge rank={student.rank} size="sm" />
 
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold truncate">{student.name}</div>
-                    <div className="text-xs text-[#6B6860] truncate">{student.school} · Year {student.year}</div>
+                    <div className="text-xs text-[#6B6860] truncate">
+                      {student.school} · Year {student.year}
+                    </div>
                   </div>
 
-                  {/* XP */}
                   <div className="text-right">
                     <div className="text-sm font-bold text-[#F59E0B]">
                       {student.xp.toLocaleString()}
